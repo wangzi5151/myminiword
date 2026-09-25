@@ -1,4 +1,4 @@
-package com.wangzi5151.shahe;
+package com.wangzi5151.myminiword;
 
 import android.app.Activity;
 import android.graphics.Color;

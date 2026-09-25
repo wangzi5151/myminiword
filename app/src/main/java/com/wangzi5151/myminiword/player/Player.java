@@ -1,7 +1,7 @@
-package com.wangzi5151.shahe.player;
+package com.wangzi5151.myminiword.player;
 
-import com.wangzi5151.shahe.world.Chunk;
-import com.wangzi5151.shahe.world.World;
+import com.wangzi5151.myminiword.world.Chunk;
+import com.wangzi5151.myminiword.world.World;
 
 public class Player {
     public float x, y, z;
@@ -128,7 +128,7 @@ public class Player {
                 for (int bz = z0; bz <= z1; bz++) {
                     int id = world.getBlock(bx, by, bz);
                     if (id == 0) continue;
-                    if (!com.wangzi5151.shahe.world.BlockType.isSolid(id)) continue;
+                    if (!com.wangzi5151.myminiword.world.BlockType.isSolid(id)) continue;
                     if (maxX > bx && minX < bx + 1 &&
                             maxY > by && minY < by + 1 &&
                             maxZ > bz && minZ < bz + 1) {

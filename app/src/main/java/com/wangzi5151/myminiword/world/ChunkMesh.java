@@ -1,6 +1,6 @@
-package com.wangzi5151.shahe.world;
+package com.wangzi5151.myminiword.world;
 
-import com.wangzi5151.shahe.engine.TextureAtlas;
+import com.wangzi5151.myminiword.engine.TextureAtlas;
 
 import java.util.Arrays;
 

@@ -1,4 +1,4 @@
-package com.wangzi5151.shahe;
+package com.wangzi5151.myminiword;
 
 public final class Diag {
     private static volatile String error = null;

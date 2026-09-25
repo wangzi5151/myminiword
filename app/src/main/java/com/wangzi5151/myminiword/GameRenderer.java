@@ -1,20 +1,20 @@
-package com.wangzi5151.shahe;
+package com.wangzi5151.myminiword;
 
 import android.content.Context;
 import android.opengl.GLES20;
 import android.opengl.GLSurfaceView;
 import android.opengl.Matrix;
 
-import com.wangzi5151.shahe.engine.Camera;
-import com.wangzi5151.shahe.engine.ShaderProgram;
-import com.wangzi5151.shahe.engine.TextureAtlas;
-import com.wangzi5151.shahe.player.Player;
-import com.wangzi5151.shahe.world.BlockType;
-import com.wangzi5151.shahe.world.Chunk;
-import com.wangzi5151.shahe.world.ChunkMesh;
-import com.wangzi5151.shahe.world.CityGenerator;
-import com.wangzi5151.shahe.world.MeshData;
-import com.wangzi5151.shahe.world.World;
+import com.wangzi5151.myminiword.engine.Camera;
+import com.wangzi5151.myminiword.engine.ShaderProgram;
+import com.wangzi5151.myminiword.engine.TextureAtlas;
+import com.wangzi5151.myminiword.player.Player;
+import com.wangzi5151.myminiword.world.BlockType;
+import com.wangzi5151.myminiword.world.Chunk;
+import com.wangzi5151.myminiword.world.ChunkMesh;
+import com.wangzi5151.myminiword.world.CityGenerator;
+import com.wangzi5151.myminiword.world.MeshData;
+import com.wangzi5151.myminiword.world.World;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -372,7 +372,7 @@ public class GameRenderer implements GLSurfaceView.Renderer {
     }
 
     private void loadPlayerState() {
-        android.content.SharedPreferences sp = context.getSharedPreferences("shahe", Context.MODE_PRIVATE);
+        android.content.SharedPreferences sp = context.getSharedPreferences("myminiword", Context.MODE_PRIVATE);
         hasSaved = sp.getBoolean("has", false);
         startX = sp.getFloat("px", 0.5f);
         startY = sp.getFloat("py", 40f);
@@ -384,7 +384,7 @@ public class GameRenderer implements GLSurfaceView.Renderer {
     }
 
     private void savePlayerState() {
-        android.content.SharedPreferences sp = context.getSharedPreferences("shahe", Context.MODE_PRIVATE);
+        android.content.SharedPreferences sp = context.getSharedPreferences("myminiword", Context.MODE_PRIVATE);
         sp.edit()
                 .putBoolean("has", true)
                 .putFloat("px", player.x)

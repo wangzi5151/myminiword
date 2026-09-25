@@ -1,8 +1,8 @@
-package com.wangzi5151.shahe.world;
+package com.wangzi5151.myminiword.world;
 
 import android.opengl.GLES20;
 
-import com.wangzi5151.shahe.Diag;
+import com.wangzi5151.myminiword.Diag;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;

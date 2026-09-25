@@ -1,4 +1,4 @@
-package com.wangzi5151.shahe;
+package com.wangzi5151.myminiword;
 
 import android.content.Context;
 import android.graphics.Bitmap;
@@ -12,8 +12,8 @@ import android.util.SparseIntArray;
 import android.view.MotionEvent;
 import android.view.View;
 
-import com.wangzi5151.shahe.world.BlockType;
-import com.wangzi5151.shahe.world.CityGenerator;
+import com.wangzi5151.myminiword.world.BlockType;
+import com.wangzi5151.myminiword.world.CityGenerator;
 
 public class ControlsOverlay extends View {
     private static final int ROLE_LOOK = 1;

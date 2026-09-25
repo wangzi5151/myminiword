@@ -1,4 +1,4 @@
-package com.wangzi5151.shahe;
+package com.wangzi5151.myminiword;
 
 public class Inventory {
     public final int[] counts = new int[64];

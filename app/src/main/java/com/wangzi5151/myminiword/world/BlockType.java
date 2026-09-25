@@ -1,6 +1,6 @@
-package com.wangzi5151.shahe.world;
+package com.wangzi5151.myminiword.world;
 
-import com.wangzi5151.shahe.engine.TextureAtlas;
+import com.wangzi5151.myminiword.engine.TextureAtlas;
 
 public class BlockType {
     public static final int FACE_PX = 0;

@@ -1,4 +1,4 @@
-package com.wangzi5151.shahe.world;
+package com.wangzi5151.myminiword.world;
 
 import java.util.Random;
 

@@ -9,15 +9,15 @@ if (keystorePropsFile.exists()) {
 }
 
 android {
-    namespace 'com.wangzi5151.shahe'
+    namespace 'com.wangzi5151.myminiword'
     compileSdk 34
 
     defaultConfig {
-        applicationId "com.wangzi5151.shahe"
+        applicationId "com.wangzi5151.myminiword"
         minSdk 26
         targetSdk 34
-        versionCode 19
-        versionName "1.3.0"
+        versionCode 20
+        versionName "1.4.0"
     }
 
     signingConfigs {

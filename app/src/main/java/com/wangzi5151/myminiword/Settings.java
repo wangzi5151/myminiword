@@ -1,4 +1,4 @@
-package com.wangzi5151.shahe;
+package com.wangzi5151.myminiword;
 
 public class Settings {
     public volatile float sensitivity = 1.0f;
