@@ -1,0 +1,2 @@
+-dontwarn com.tinyai.voxelcraft.**
+-keep class com.tinyai.voxelcraft.** { *; }
