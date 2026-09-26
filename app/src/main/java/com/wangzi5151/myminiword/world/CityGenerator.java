@@ -5,6 +5,7 @@ import java.util.Random;
 
 public class CityGenerator {
     private static final int RADIUS = 48;
+    private static final int STAIR_X = 5;   // x offset of the station stairway (clear of the Z-track)
 
     public static final int THEME_CHINESE = 0;
     public static final int THEME_EUROPEAN = 1;
@@ -459,12 +460,13 @@ public class CityGenerator {
             }
         }
 
-        // Curtain-wall glass facade, open where the rails run through.
+        // Curtain-wall glass facade, open where the rails run through and where the stairway lands.
         for (int dx = -hx; dx <= hx; dx++) {
             if (Math.abs(dx) <= 2) continue;
+            boolean stairDoor = (dx >= STAIR_X - 1 && dx <= STAIR_X + 1);
             for (int y = ty + 1; y <= ty + 6; y++) {
                 put(chunk, baseX, baseZ, wx0 + dx, y, wz0 - hz, glass);
-                put(chunk, baseX, baseZ, wx0 + dx, y, wz0 + hz, glass);
+                if (!stairDoor) put(chunk, baseX, baseZ, wx0 + dx, y, wz0 + hz, glass);
             }
         }
         for (int dz = -hz; dz <= hz; dz++) {
@@ -502,6 +504,24 @@ public class CityGenerator {
         for (int y = roofY + 1; y <= roofY + 7; y++)
             put(chunk, baseX, baseZ, wx0 - hx, y, wz0, accent);
         put(chunk, baseX, baseZ, wx0 - hx, roofY + 8, wz0, glow);
+
+        // Grand staircase from the city ground up to the platform (on the +Z side).
+        int steps = ty - target;
+        if (steps > 0) {
+            for (int i = 1; i <= steps; i++) {
+                int z = wz0 + hz + (steps - i + 1);
+                int topY = target + i - 1;
+                for (int ax = -1; ax <= 1; ax++) {
+                    for (int y = target - 1; y <= topY; y++) {
+                        put(chunk, baseX, baseZ, wx0 + STAIR_X + ax, y, z,
+                                (y == topY) ? frame : wall);
+                    }
+                }
+                // Step-side railings.
+                put(chunk, baseX, baseZ, wx0 + STAIR_X - 2, topY, z, accent);
+                put(chunk, baseX, baseZ, wx0 + STAIR_X + 2, topY, z, accent);
+            }
+        }
     }
 
     private void put(Chunk chunk, int baseX, int baseZ, int wx, int wy, int wz, int id) {

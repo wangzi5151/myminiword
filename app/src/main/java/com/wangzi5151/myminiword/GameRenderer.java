@@ -2058,23 +2058,27 @@ public class GameRenderer implements GLSurfaceView.Renderer {
                 if (villagers.get(i).cityIndex == ci) count++;
             }
             int want = VILLAGERS_PER_CITY - count;
-            while (want > 0 && villagers.size() < MAX_VILLAGERS) {
+            int guard = 40;
+            while (want > 0 && villagers.size() < MAX_VILLAGERS && guard-- > 0) {
                 float ang = random.nextFloat() * 6.2831853f;
                 float rad = 12f + random.nextFloat() * 30f;
                 float vx = c[0] + 0.5f + (float) Math.cos(ang) * rad;
                 float vz = c[1] + 0.5f + (float) Math.sin(ang) * rad;
                 want--;
-                if (!world.isChunkGenerated(((int) Math.floor(vx)) >> 4, ((int) Math.floor(vz)) >> 4)) continue;
-                villagers.add(new Villager(vx, world.cityGroundHeight(ci), vz, ci));
+                int bx = (int) Math.floor(vx), bz = (int) Math.floor(vz);
+                if (!world.isChunkGenerated(bx >> 4, bz >> 4)) continue;
+                int gy = world.getSurfaceHeight(bx, bz);
+                if (gy < 5 || gy > world.cityGroundHeight(ci)) continue;
+                villagers.add(new Villager(vx, gy + 1, vz, ci));
             }
         }
         for (int i = 0; i < villagers.size(); i++) {
             Villager v = villagers.get(i);
+            int[] c = CityGenerator.CITIES[v.cityIndex];
             v.retarget -= dt;
             float tdx = v.tx - v.x, tdz = v.tz - v.z;
             float dist2 = tdx * tdx + tdz * tdz;
             if (v.retarget <= 0f || dist2 < 0.6f) {
-                int[] c = CityGenerator.CITIES[v.cityIndex];
                 float ang = random.nextFloat() * 6.2831853f;
                 float rad = 8f + random.nextFloat() * 34f;
                 v.tx = c[0] + 0.5f + (float) Math.cos(ang) * rad;
@@ -2087,16 +2091,37 @@ public class GameRenderer implements GLSurfaceView.Renderer {
             if (dist2 > 0.0001f) {
                 float d = (float) Math.sqrt(dist2);
                 float sp = Math.min(1.6f * dt, d);
-                v.x += tdx / d * sp;
-                v.z += tdz / d * sp;
-                float targetYaw = (float) Math.toDegrees(Math.atan2(tdx, tdz));
-                float dy = targetYaw - v.yaw;
-                while (dy > 180f) dy -= 360f;
-                while (dy < -180f) dy += 360f;
-                v.yaw += dy * Math.min(1f, dt * 6f);
-                v.walkPhase += dt * 8f;
+                float nx = v.x + tdx / d * sp;
+                float nz = v.z + tdz / d * sp;
+                int bx = (int) Math.floor(nx), bz = (int) Math.floor(nz);
+                float rdx = nx - c[0], rdz = nz - c[1];
+                boolean outside = rdx * rdx + rdz * rdz > 46f * 46f;
+                int gy = world.isChunkGenerated(bx >> 4, bz >> 4) ? world.getSurfaceHeight(bx, bz) : -1;
+                boolean blocked = outside || gy < 5 || gy > (int) Math.floor(v.y);
+                if (blocked) {
+                    // Obstacle ahead (building, lamp, edge of town): deflect to the side and slide along it.
+                    float fx = tdx / d, fz = tdz / d;
+                    float side = random.nextBoolean() ? 1f : -1f;
+                    float a = 0.6f + random.nextFloat() * 1.3f;
+                    float ca = (float) Math.cos(a), sa = (float) Math.sin(a);
+                    float dirx = fx * ca - fz * sa * side;
+                    float dirz = fz * ca + fx * sa * side;
+                    float len = 6f + random.nextFloat() * 8f;
+                    v.tx = v.x + dirx * len;
+                    v.tz = v.z + dirz * len;
+                    v.retarget = 1.2f + random.nextFloat() * 1.5f;
+                } else {
+                    v.x = nx;
+                    v.z = nz;
+                    v.y = gy + 1;
+                    float targetYaw = (float) Math.toDegrees(Math.atan2(tdx, tdz));
+                    float dy = targetYaw - v.yaw;
+                    while (dy > 180f) dy -= 360f;
+                    while (dy < -180f) dy += 360f;
+                    v.yaw += dy * Math.min(1f, dt * 6f);
+                    v.walkPhase += dt * 8f;
+                }
             }
-            v.y = world.cityGroundHeight(v.cityIndex);
         }
     }
 
