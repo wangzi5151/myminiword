@@ -94,10 +94,19 @@ public class TerrainGenerator {
     }
 
     public int surfaceHeight(int wx, int wz) {
-        float h = 24f + heightNoise.fbm2(wx * 0.012f, wz * 0.012f, 4, 2f, 0.5f) * 18f;
-        h += detailNoise.fbm2(wx * 0.06f, wz * 0.06f, 2, 2f, 0.5f) * 3f;
-        float mountain = mountainNoise.fbm2(wx * 0.006f, wz * 0.006f, 3, 2f, 0.5f);
-        if (mountain > 0.30f) h += (mountain - 0.30f) * 46f;
+        // Broad, low-frequency rolling hills: large smooth swells.
+        float base = heightNoise.fbm2(wx * 0.0032f, wz * 0.0032f, 3, 2f, 0.5f);
+        // Gentle medium undulation for natural variation without jaggedness.
+        float rolling = heightNoise.fbm2(wx * 0.010f, wz * 0.010f, 2, 2f, 0.5f);
+        float h = 28f + base * 16f + rolling * 4f;
+        // Soft foothills that ramp in smoothly instead of rising as cliffs.
+        float mountain = mountainNoise.fbm2(wx * 0.0016f, wz * 0.0016f, 3, 2f, 0.5f);
+        if (mountain > 0.32f) {
+            float m = mountain - 0.32f;
+            h += m * m * 62f + m * 12f;
+        }
+        // Very soft surface detail (sub-block) to avoid a flat, tiled look.
+        h += detailNoise.fbm2(wx * 0.05f, wz * 0.05f, 2, 2f, 0.5f) * 0.7f;
         int surface = (int) Math.round(h);
         if (surface < 2) surface = 2;
         if (surface > Chunk.SIZE_Y - 6) surface = Chunk.SIZE_Y - 6;

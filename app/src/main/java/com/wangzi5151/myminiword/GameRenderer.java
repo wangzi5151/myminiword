@@ -58,6 +58,10 @@ public class GameRenderer implements GLSurfaceView.Renderer {
             "precision mediump float;\n" +
             "uniform sampler2D uTex;\n" +
             "uniform vec3 uFogColor;\n" +
+            "uniform vec3 uCamPos;\n" +
+            "uniform vec3 uSunDir;\n" +
+            "uniform vec3 uSunColor;\n" +
+            "uniform vec2 uResolution;\n" +
             "uniform float uFogStart;\n" +
             "uniform float uFogEnd;\n" +
             "uniform float uAmbient;\n" +
@@ -68,6 +72,18 @@ public class GameRenderer implements GLSurfaceView.Renderer {
             "varying mediump float vShade;\n" +
             "varying mediump float vDist;\n" +
             "varying mediump vec3 vWorld;\n" +
+            "vec3 grade(vec3 col){\n" +
+            "  col = max(col, 0.0);\n" +
+            "  float l = dot(col, vec3(0.2126, 0.7152, 0.0722));\n" +
+            "  col = mix(vec3(l), col, 1.14);\n" +
+            "  col = (col - 0.5) * 1.07 + 0.5;\n" +
+            "  col = pow(clamp(col, 0.0, 1.0), vec3(0.95));\n" +
+            "  return clamp(col, 0.0, 1.0);\n" +
+            "}\n" +
+            "float vig(){\n" +
+            "  vec2 q = gl_FragCoord.xy / max(uResolution, vec2(1.0)) - 0.5;\n" +
+            "  return clamp(1.0 - dot(q, q) * 0.45, 0.0, 1.0);\n" +
+            "}\n" +
             "void main(){\n" +
             "  vec2 local = fract(vTileLocal);\n" +
             "  vec2 uv = vTileOrigin + 0.001953125 + local * 0.060546875;\n" +
@@ -78,8 +94,20 @@ public class GameRenderer implements GLSurfaceView.Renderer {
             "    bright *= 1.0 + 0.10 * sin(vWorld.x * 1.3 + uTime * 2.0) * cos(vWorld.z * 1.1 - uTime * 1.6);\n" +
             "  }\n" +
             "  c.rgb *= bright;\n" +
+            "  if (uWave > 0.5) {\n" +
+            "    float dYdx = cos(vWorld.x * 0.6 + uTime * 1.7) * 0.03;\n" +
+            "    float dYdz = -sin(vWorld.z * 0.55 + uTime * 1.3) * 0.0275;\n" +
+            "    vec3 N = normalize(vec3(-dYdx, 1.0, -dYdz));\n" +
+            "    vec3 V = normalize(uCamPos - vWorld);\n" +
+            "    vec3 H = normalize(V + uSunDir);\n" +
+            "    float spec = pow(max(dot(N, H), 0.0), 90.0);\n" +
+            "    c.rgb += uSunColor * spec * 1.15;\n" +
+            "    float fres = pow(1.0 - max(dot(N, V), 0.0), 3.0);\n" +
+            "    c.rgb = mix(c.rgb, uFogColor, clamp(fres, 0.0, 1.0) * 0.45);\n" +
+            "  }\n" +
             "  float f = clamp((vDist - uFogStart) / (uFogEnd - uFogStart), 0.0, 1.0);\n" +
             "  c.rgb = mix(c.rgb, uFogColor, f);\n" +
+            "  c.rgb = grade(c.rgb) * vig();\n" +
             "  gl_FragColor = c;\n" +
             "}\n";
 
@@ -104,15 +132,31 @@ public class GameRenderer implements GLSurfaceView.Renderer {
             "uniform vec3 uSunColor;\n" +
             "uniform vec3 uTop;\n" +
             "uniform vec3 uBottom;\n" +
+            "uniform vec2 uResolution;\n" +
             "uniform float uNight;\n" +
             "uniform float uTime;\n" +
             "float hash(vec3 p){ p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }\n" +
+            "vec3 grade(vec3 col){\n" +
+            "  col = max(col, 0.0);\n" +
+            "  float l = dot(col, vec3(0.2126, 0.7152, 0.0722));\n" +
+            "  col = mix(vec3(l), col, 1.14);\n" +
+            "  col = (col - 0.5) * 1.07 + 0.5;\n" +
+            "  col = pow(clamp(col, 0.0, 1.0), vec3(0.95));\n" +
+            "  return clamp(col, 0.0, 1.0);\n" +
+            "}\n" +
+            "float vig(){\n" +
+            "  vec2 q = gl_FragCoord.xy / max(uResolution, vec2(1.0)) - 0.5;\n" +
+            "  return clamp(1.0 - dot(q, q) * 0.45, 0.0, 1.0);\n" +
+            "}\n" +
             "void main(){\n" +
             "  vec3 d = normalize(vDir);\n" +
             "  float h = clamp(d.y, 0.0, 1.0);\n" +
             "  vec3 col = mix(uBottom, uTop, pow(h, 0.55));\n" +
             "  float sd = max(dot(d, uSunDir), 0.0);\n" +
-            "  col += uSunColor * (pow(sd, 700.0) * 1.6 + pow(sd, 24.0) * 0.28);\n" +
+            "  // Broad atmospheric haze around the sun, strongest near the horizon.\n" +
+            "  float horizon = pow(1.0 - h, 3.0);\n" +
+            "  col += uSunColor * (pow(sd, 6.0) * 0.18 * horizon + pow(sd, 64.0) * 0.20);\n" +
+            "  col += uSunColor * (pow(sd, 700.0) * 1.6);\n" +
             "  float md = max(dot(d, uMoonDir), 0.0);\n" +
             "  col += vec3(0.85,0.9,1.0) * (pow(md, 1800.0) * 1.3 + pow(md, 40.0) * 0.05);\n" +
             "  if (uNight > 0.02 && d.y > 0.0) {\n" +
@@ -122,7 +166,7 @@ public class GameRenderer implements GLSurfaceView.Renderer {
             "    float tw = 0.5 + 0.5 * sin(uTime * 3.0 + s * 100.0);\n" +
             "    col += vec3(star * tw) * uNight * smoothstep(0.0, 0.2, d.y);\n" +
             "  }\n" +
-            "  gl_FragColor = vec4(col, 1.0);\n" +
+            "  gl_FragColor = vec4(grade(col) * vig(), 1.0);\n" +
             "}\n";
 
     private static final String CLOUD_VS =
@@ -139,14 +183,28 @@ public class GameRenderer implements GLSurfaceView.Renderer {
             "varying mediump float vDist;\n" +
             "uniform sampler2D uCloudTex;\n" +
             "uniform vec3 uFogColor;\n" +
+            "uniform vec2 uResolution;\n" +
             "uniform float uFogStart;\n" +
             "uniform float uFogEnd;\n" +
             "uniform float uAlpha;\n" +
+            "vec3 grade(vec3 col){\n" +
+            "  col = max(col, 0.0);\n" +
+            "  float l = dot(col, vec3(0.2126, 0.7152, 0.0722));\n" +
+            "  col = mix(vec3(l), col, 1.14);\n" +
+            "  col = (col - 0.5) * 1.07 + 0.5;\n" +
+            "  col = pow(clamp(col, 0.0, 1.0), vec3(0.95));\n" +
+            "  return clamp(col, 0.0, 1.0);\n" +
+            "}\n" +
+            "float vig(){\n" +
+            "  vec2 q = gl_FragCoord.xy / max(uResolution, vec2(1.0)) - 0.5;\n" +
+            "  return clamp(1.0 - dot(q, q) * 0.45, 0.0, 1.0);\n" +
+            "}\n" +
             "void main(){\n" +
             "  vec4 c = texture2D(uCloudTex, vUV);\n" +
             "  if (c.a < 0.03) discard;\n" +
             "  float f = clamp((vDist - uFogStart) / (uFogEnd - uFogStart), 0.0, 1.0);\n" +
             "  vec3 col = mix(c.rgb, uFogColor, f);\n" +
+            "  col = grade(col) * vig();\n" +
             "  gl_FragColor = vec4(col, c.a * uAlpha * (1.0 - f * 0.5));\n" +
             "}\n";
 
@@ -250,10 +308,12 @@ public class GameRenderer implements GLSurfaceView.Renderer {
 
     private int aPos, aTile, aShade;
     private int uMVP, uChunkOffset, uTex, uFogColor, uFogStart, uFogEnd, uAmbient, uTime, uWave;
+    private int uCamPos, uSunDir, uSunColor, uResolution;
     private int lPos, lMVP, lColor;
     private int skyPos, skyFwd, skyRight, skyUp, skyTan, skyAspect;
-    private int skySunDir, skyMoonDir, skySunColor, skyTop, skyBottom, skyNight, skyTime;
-    private int cldPos, cldUV, cldMVP, cldTex, cldFog, cldFogStart, cldFogEnd, cldAlpha;
+    private int skySunDir, skyMoonDir, skySunColor, skyTop, skyBottom, skyNight, skyTime, skyResolution;
+    private int cldPos, cldUV, cldMVP, cldTex, cldFog, cldFogStart, cldFogEnd, cldAlpha, cldResolution;
+    private int screenW = 1, screenH = 1;
     private int prPos, prColor, prCorner, prMVP, prRight, prUp, prSize;
 
     private int lineVbo = -1;
@@ -441,6 +501,10 @@ public class GameRenderer implements GLSurfaceView.Renderer {
         uAmbient = blockShader.getUniform("uAmbient");
         uTime = blockShader.getUniform("uTime");
         uWave = blockShader.getUniform("uWave");
+        uCamPos = blockShader.getUniform("uCamPos");
+        uSunDir = blockShader.getUniform("uSunDir");
+        uSunColor = blockShader.getUniform("uSunColor");
+        uResolution = blockShader.getUniform("uResolution");
 
         lineShader = new ShaderProgram(LINE_VS, LINE_FS);
         lPos = lineShader.getAttribute("aPos");
@@ -461,6 +525,7 @@ public class GameRenderer implements GLSurfaceView.Renderer {
         skyBottom = skyShader.getUniform("uBottom");
         skyNight = skyShader.getUniform("uNight");
         skyTime = skyShader.getUniform("uTime");
+        skyResolution = skyShader.getUniform("uResolution");
 
         cloudShader = new ShaderProgram(CLOUD_VS, CLOUD_FS);
         cldPos = cloudShader.getAttribute("aPos");
@@ -471,6 +536,7 @@ public class GameRenderer implements GLSurfaceView.Renderer {
         cldFogStart = cloudShader.getUniform("uFogStart");
         cldFogEnd = cloudShader.getUniform("uFogEnd");
         cldAlpha = cloudShader.getUniform("uAlpha");
+        cldResolution = cloudShader.getUniform("uResolution");
 
         partShader = new ShaderProgram(PART_VS, PART_FS);
         prPos = partShader.getAttribute("aPos");
@@ -560,6 +626,8 @@ public class GameRenderer implements GLSurfaceView.Renderer {
     public void onSurfaceChanged(GL10 gl, int width, int height) {
         GLES20.glViewport(0, 0, width, height);
         aspect = (float) width / (float) height;
+        screenW = Math.max(1, width);
+        screenH = Math.max(1, height);
         if (camera != null) camera.setPerspective(74f, aspect, 0.05f, 360f);
     }
 
@@ -1058,6 +1126,7 @@ public class GameRenderer implements GLSurfaceView.Renderer {
         GLES20.glUniform3f(skyBottom, skyBotR, skyBotG, skyBotB);
         GLES20.glUniform1f(skyNight, nightFactor);
         GLES20.glUniform1f(skyTime, (float) (System.nanoTime() / 1e9));
+        GLES20.glUniform2f(skyResolution, screenW, screenH);
         GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, skyVbo);
         GLES20.glEnableVertexAttribArray(skyPos);
         GLES20.glVertexAttribPointer(skyPos, 2, GLES20.GL_FLOAT, false, 0, 0);
@@ -1163,6 +1232,10 @@ public class GameRenderer implements GLSurfaceView.Renderer {
         GLES20.glUniform1f(uAmbient, ambient);
         GLES20.glUniform1f(uTime, (float) (System.nanoTime() / 1e9));
         GLES20.glUniform1f(uWave, 0f);
+        GLES20.glUniform3f(uCamPos, camera.x, camera.y, camera.z);
+        GLES20.glUniform3f(uSunDir, sunDirX, sunDirY, sunDirZ);
+        GLES20.glUniform3f(uSunColor, sunColR, sunColG, sunColB);
+        GLES20.glUniform2f(uResolution, screenW, screenH);
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, atlas.getTextureId());
         GLES20.glEnableVertexAttribArray(aPos);
@@ -1226,6 +1299,7 @@ public class GameRenderer implements GLSurfaceView.Renderer {
         GLES20.glUniform1f(cldFogStart, fogStart);
         GLES20.glUniform1f(cldFogEnd, fogEnd);
         GLES20.glUniform1f(cldAlpha, alpha);
+        GLES20.glUniform2f(cldResolution, screenW, screenH);
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, atlas.getCloudTextureId());
         GLES20.glEnable(GLES20.GL_BLEND);

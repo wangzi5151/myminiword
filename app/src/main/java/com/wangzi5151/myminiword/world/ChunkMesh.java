@@ -6,7 +6,7 @@ import java.util.Arrays;
 
 public class ChunkMesh {
 
-    private static final float[] FACE_SHADE = {0.80f, 0.80f, 1.00f, 0.55f, 0.68f, 0.68f};
+    private static final float[] FACE_SHADE = {0.86f, 0.86f, 1.00f, 0.62f, 0.72f, 0.72f};
     private static final int FLOATS_PER_VERTEX = 7;
     private static final int SX = Chunk.SIZE_X;
     private static final int SY = Chunk.SIZE_Y;
@@ -192,7 +192,7 @@ public class ChunkMesh {
             int occC = opaqueId(padGet(pad, a[0], a[1], a[2])) ? 1 : 0;
 
             int ao = (occ1 == 1 && occ2 == 1) ? 0 : 3 - (occ1 + occ2 + occC);
-            float aoFactor = 0.55f + (ao / 3f) * 0.45f;
+            float aoFactor = 0.58f + (ao / 3f) * 0.42f;
 
             out.add(pos[0]);
             out.add(pos[1]);
