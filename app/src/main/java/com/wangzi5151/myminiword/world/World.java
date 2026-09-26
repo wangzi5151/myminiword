@@ -489,6 +489,14 @@ public class World {
         return false;
     }
 
+    public int cityGroundHeight(int index) {
+        int[] c = CityGenerator.CITIES[index];
+        int t = generator.surfaceHeight(c[0], c[1]);
+        if (t < TerrainGenerator.SEA_LEVEL + 2) t = TerrainGenerator.SEA_LEVEL + 2;
+        if (t > 38) t = 38;
+        return t;
+    }
+
     public int getSurfaceHeight(int x, int z) {
         for (int y = Chunk.SIZE_Y - 1; y >= 0; y--) {
             int id = getBlock(x, y, z);

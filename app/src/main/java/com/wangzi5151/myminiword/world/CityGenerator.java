@@ -218,6 +218,53 @@ public class CityGenerator {
             put(chunk, baseX, baseZ, bx + 1, y0 + h + 1, bz + 1, roof);
             put(chunk, baseX, baseZ, bx + 1, y0 + h + 2, bz + 1, accent);
         }
+        furnishHouse(chunk, baseX, baseZ, bx, y0, bz, w, h, d, accent, roof);
+    }
+
+    private void furnishHouse(Chunk chunk, int baseX, int baseZ, int bx, int y0, int bz, int w, int h, int d, int accent, int roof) {
+        int fx0 = bx + 1, fz0 = bz + 1, fx1 = bx + w - 2, fz1 = bz + d - 2;
+        if (fx0 >= fx1 || fz0 >= fz1) return;
+        Random r = new Random((long) bx * 92837111L + (long) bz * 689287499L + 13L);
+        int cx = (fx0 + fx1) / 2, cz = (fz0 + fz1) / 2;
+
+        // Dining table with chairs and a hanging lamp.
+        put(chunk, baseX, baseZ, cx, y0, cz, BlockType.PLANKS.id);
+        put(chunk, baseX, baseZ, cx, y0 + 1, cz, BlockType.PLANKS.id);
+        put(chunk, baseX, baseZ, cx - 1, y0, cz, BlockType.LOG.id);
+        put(chunk, baseX, baseZ, cx + 1, y0, cz, BlockType.LOG.id);
+        put(chunk, baseX, baseZ, cx, y0, cz - 1, BlockType.BOOKSHELF.id);
+        put(chunk, baseX, baseZ, cx, Math.min(y0 + h - 1, y0 + 3), cz, BlockType.GLOWSTONE.id);
+
+        // Bed in a corner (red mattress + white pillow).
+        put(chunk, baseX, baseZ, fx0, y0, fz0, BlockType.RED_PLASTER.id);
+        put(chunk, baseX, baseZ, fx0, y0, fz0 + 1, BlockType.RED_PLASTER.id);
+        put(chunk, baseX, baseZ, fx0 + 1, y0, fz0, BlockType.WHITE_PLASTER.id);
+
+        // Kitchen counter along one wall.
+        for (int x = fx0; x <= fx1; x += 2) {
+            put(chunk, baseX, baseZ, x, y0, fz1, accent);
+        }
+        // A sink/stove detail.
+        put(chunk, baseX, baseZ, cx, y0, fz1, BlockType.IRON_BLOCK.id);
+
+        // Bookshelves / storage along the opposite wall.
+        if (r.nextBoolean()) {
+            put(chunk, baseX, baseZ, fx1, y0, fz0, BlockType.BOOKSHELF.id);
+            put(chunk, baseX, baseZ, fx1, y0, fz0 + 1, BlockType.BOOKSHELF.id);
+        } else {
+            put(chunk, baseX, baseZ, fx1, y0, fz1, BlockType.BOOKSHELF.id);
+            put(chunk, baseX, baseZ, fx1, y0, fz1 - 1, BlockType.BOOKSHELF.id);
+        }
+
+        // Potted plants.
+        put(chunk, baseX, baseZ, fx1, y0, cz, BlockType.LEAVES.id);
+        put(chunk, baseX, baseZ, fx1, y0 + 1, cz, BlockType.LEAVES.id);
+
+        // A low ceiling trim for a cozier interior.
+        if (h >= 5) {
+            put(chunk, baseX, baseZ, cx - 1, y0 + h - 2, cz - 1, BlockType.PLANKS.id);
+            put(chunk, baseX, baseZ, cx + 1, y0 + h - 2, cz + 1, BlockType.PLANKS.id);
+        }
     }
 
     private void buildGableRoof(Chunk chunk, int baseX, int baseZ, int x0, int z0, int w, int d, int baseY, int roof, int accent) {

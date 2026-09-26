@@ -206,7 +206,7 @@ public class ControlsOverlay extends View {
         panelRect.set(pl, pt, pl + pw, pt + ph);
 
         float pad = dp(16);
-        float rowH = ph / 10.5f;
+        float rowH = ph / 11.5f;
         float btn = rowH * 0.62f;
         float right = panelRect.right - pad;
         float valW = rowH * 1.2f;
@@ -510,12 +510,14 @@ public class ControlsOverlay extends View {
 
     private void labelLeft(Canvas canvas, String s, float x, float cy) {
         text.setTextAlign(Paint.Align.LEFT);
+        text.setColor(0xFFFFFFFF);
         Paint.FontMetrics fm = text.getFontMetrics();
         canvas.drawText(s, x, cy - (fm.ascent + fm.descent) / 2f, text);
         text.setTextAlign(Paint.Align.CENTER);
     }
 
     private void valueCentered(Canvas canvas, String s, float cx, float cy) {
+        text.setColor(0xFFFFFFFF);
         Paint.FontMetrics fm = text.getFontMetrics();
         canvas.drawText(s, cx, cy - (fm.ascent + fm.descent) / 2f, text);
     }

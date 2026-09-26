@@ -317,6 +317,24 @@ public class ChunkMesh {
         return new MeshData(out.toArray(), idx.toArray());
     }
 
+    public static MeshData buildVillagerMesh() {
+        FloatList out = new FloatList(10 * 6 * FLOATS_PER_VERTEX);
+        ShortList idx = new ShortList(10 * 6);
+        int skin = TextureAtlas.SAND;
+        int robe = TextureAtlas.BLUE_PLASTER;
+        int dark = TextureAtlas.DARK_PLASTER;
+        emitBox(out, idx, dark, -0.20f, 0.00f, -0.10f, -0.06f, 0.72f, 0.10f);
+        emitBox(out, idx, dark, 0.06f, 0.00f, -0.10f, 0.20f, 0.72f, 0.10f);
+        emitBox(out, idx, robe, -0.22f, 0.72f, -0.13f, 0.22f, 1.28f, 0.13f);
+        emitBox(out, idx, robe, -0.34f, 0.78f, -0.11f, -0.22f, 1.24f, 0.11f);
+        emitBox(out, idx, robe, 0.22f, 0.78f, -0.11f, 0.34f, 1.24f, 0.11f);
+        emitBox(out, idx, skin, -0.08f, 1.28f, -0.08f, 0.08f, 1.34f, 0.08f);
+        emitBox(out, idx, skin, -0.18f, 1.34f, -0.18f, 0.18f, 1.70f, 0.18f);
+        emitBox(out, idx, dark, -0.19f, 1.66f, -0.19f, 0.19f, 1.76f, 0.19f);
+        emitBox(out, idx, skin, -0.05f, 1.46f, 0.18f, 0.05f, 1.56f, 0.24f);
+        return new MeshData(out.toArray(), idx.toArray());
+    }
+
     private static void emitBox(FloatList out, ShortList indices, int tile,
                                 float x0, float y0, float z0, float x1, float y1, float z1) {
         for (int face = 0; face < 6; face++) {

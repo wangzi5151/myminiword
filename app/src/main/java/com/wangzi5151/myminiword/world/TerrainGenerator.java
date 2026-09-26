@@ -28,6 +28,7 @@ public class TerrainGenerator {
                 int surface = surfaceHeight(wx, wz);
                 float biome = biomeNoise.fbm2(wx * 0.004f, wz * 0.004f, 2, 2f, 0.5f);
                 boolean cold = biome > 0.35f;
+                boolean desert = biome < -0.38f;
                 boolean sandy = surface <= SEA_LEVEL + 1;
 
                 for (int y = 0; y <= surface; y++) {
@@ -37,9 +38,10 @@ public class TerrainGenerator {
                     } else if (y < surface - 3) {
                         id = (byte) BlockType.STONE.id;
                     } else if (y < surface) {
-                        id = (byte) (sandy ? BlockType.SANDSTONE.id : BlockType.DIRT.id);
+                        id = (byte) ((sandy || desert) ? BlockType.SANDSTONE.id : BlockType.DIRT.id);
                     } else {
                         if (sandy) id = (byte) BlockType.SAND.id;
+                        else if (desert) id = (byte) BlockType.SAND.id;
                         else if (cold) id = (byte) BlockType.SNOW.id;
                         else id = (byte) BlockType.GRASS.id;
                     }
@@ -54,6 +56,32 @@ public class TerrainGenerator {
 
         generateOres(chunk, baseX, baseZ);
         generateTrees(chunk, baseX, baseZ);
+        generateBoulders(chunk, baseX, baseZ);
+    }
+
+    private void generateBoulders(Chunk chunk, int baseX, int baseZ) {
+        Random r = new Random((long) chunk.cx * 6151L + (long) chunk.cz * 4297L + 91L);
+        int n = r.nextInt(3);
+        for (int i = 0; i < n; i++) {
+            int x = 2 + r.nextInt(Chunk.SIZE_X - 4);
+            int z = 2 + r.nextInt(Chunk.SIZE_Z - 4);
+            int s = surfaceHeight(baseX + x, baseZ + z);
+            int id = chunk.get(x, s, z);
+            if (id != BlockType.GRASS.id && id != BlockType.STONE.id && id != BlockType.SAND.id
+                    && id != BlockType.SNOW.id) continue;
+            int blob = r.nextInt(2);
+            for (int dx = -1; dx <= blob; dx++) {
+                for (int dz = -1; dz <= blob; dz++) {
+                    for (int dy = 0; dy <= 1; dy++) {
+                        if (r.nextFloat() < 0.25f) continue;
+                        int bx = x + dx, bz = z + dz, by = s + dy;
+                        if (dy == 1 && r.nextBoolean()) continue;
+                        chunk.set(bx, by, bz, (byte) (r.nextInt(4) == 0
+                                ? BlockType.MOSSY_COBBLE.id : BlockType.STONE.id));
+                    }
+                }
+            }
+        }
     }
 
     private void generateOres(Chunk chunk, int baseX, int baseZ) {
@@ -87,6 +115,9 @@ public class TerrainGenerator {
             int z = 2 + r.nextInt(Chunk.SIZE_Z - 4);
             int surface = surfaceHeight(baseX + x, baseZ + z);
             if (chunk.get(x, surface, z) != (byte) BlockType.GRASS.id) continue;
+            float biome = biomeNoise.fbm2((baseX + x) * 0.004f, (baseZ + z) * 0.004f, 2, 2f, 0.5f);
+            // Dense forests in the neutral biome band, sparse elsewhere.
+            if (Math.abs(biome) > 0.22f && r.nextFloat() < 0.7f) continue;
             boolean birch = r.nextInt(4) == 0;
             int trunk = birch ? BlockType.BIRCH_LOG.id : BlockType.LOG.id;
             placeTree(chunk, x, surface + 1, z, 4 + r.nextInt(3), trunk);

@@ -443,6 +443,15 @@ public class GameRenderer implements GLSurfaceView.Renderer {
     private final float[] cartModel = new float[16];
     private final float[] cartMvp = new float[16];
 
+    private static final int MAX_VILLAGERS = 48;
+    private static final int VILLAGERS_PER_CITY = 6;
+    private static final float VILLAGER_RANGE = 120f;
+    private static final float VILLAGER_DESPAWN = 180f;
+    private final java.util.ArrayList<Villager> villagers = new java.util.ArrayList<>();
+    private int villagerVbo = -1, villagerIbo = -1, villagerCount = 0;
+    private final float[] villagerModel = new float[16];
+    private final float[] villagerMvp = new float[16];
+
     private long lastNanos = 0L;
     private int frames = 0;
     private long fpsTimer = 0L;
@@ -1032,6 +1041,8 @@ public class GameRenderer implements GLSurfaceView.Renderer {
             }
             extractPlanes(vp);
 
+            updateVillagers(dt);
+
             boolean usePost = postEnabled && (settings == null || settings.postFx);
             shadowActive = shadowEnabled && (settings == null || settings.shadows) && sunDirY > 0.10f;
             if (shadowActive) {
@@ -1046,6 +1057,7 @@ public class GameRenderer implements GLSurfaceView.Renderer {
 
             drawSky();
             drawWorld();
+            drawVillagers();
             drawCart();
             drawParticles(dt);
             drawHighlight();
@@ -2029,6 +2041,128 @@ public class GameRenderer implements GLSurfaceView.Renderer {
         ib.position(0);
         GLES20.glBufferData(GLES20.GL_ELEMENT_ARRAY_BUFFER, md.indices.length * 2, ib, GLES20.GL_STATIC_DRAW);
         cartCount = md.indices.length;
+    }
+
+    private void updateVillagers(float dt) {
+        for (int i = villagers.size() - 1; i >= 0; i--) {
+            Villager v = villagers.get(i);
+            float dx = v.x - player.x, dz = v.z - player.z;
+            if (dx * dx + dz * dz > VILLAGER_DESPAWN * VILLAGER_DESPAWN) villagers.remove(i);
+        }
+        for (int ci = 0; ci < CityGenerator.CITIES.length; ci++) {
+            int[] c = CityGenerator.CITIES[ci];
+            float cdx = c[0] - player.x, cdz = c[1] - player.z;
+            if (cdx * cdx + cdz * cdz > VILLAGER_RANGE * VILLAGER_RANGE) continue;
+            int count = 0;
+            for (int i = 0; i < villagers.size(); i++) {
+                if (villagers.get(i).cityIndex == ci) count++;
+            }
+            int want = VILLAGERS_PER_CITY - count;
+            while (want > 0 && villagers.size() < MAX_VILLAGERS) {
+                float ang = random.nextFloat() * 6.2831853f;
+                float rad = 12f + random.nextFloat() * 30f;
+                float vx = c[0] + 0.5f + (float) Math.cos(ang) * rad;
+                float vz = c[1] + 0.5f + (float) Math.sin(ang) * rad;
+                want--;
+                if (!world.isChunkGenerated(((int) Math.floor(vx)) >> 4, ((int) Math.floor(vz)) >> 4)) continue;
+                villagers.add(new Villager(vx, world.cityGroundHeight(ci), vz, ci));
+            }
+        }
+        for (int i = 0; i < villagers.size(); i++) {
+            Villager v = villagers.get(i);
+            v.retarget -= dt;
+            float tdx = v.tx - v.x, tdz = v.tz - v.z;
+            float dist2 = tdx * tdx + tdz * tdz;
+            if (v.retarget <= 0f || dist2 < 0.6f) {
+                int[] c = CityGenerator.CITIES[v.cityIndex];
+                float ang = random.nextFloat() * 6.2831853f;
+                float rad = 8f + random.nextFloat() * 34f;
+                v.tx = c[0] + 0.5f + (float) Math.cos(ang) * rad;
+                v.tz = c[1] + 0.5f + (float) Math.sin(ang) * rad;
+                v.retarget = 3f + random.nextFloat() * 5f;
+                tdx = v.tx - v.x;
+                tdz = v.tz - v.z;
+                dist2 = tdx * tdx + tdz * tdz;
+            }
+            if (dist2 > 0.0001f) {
+                float d = (float) Math.sqrt(dist2);
+                float sp = Math.min(1.6f * dt, d);
+                v.x += tdx / d * sp;
+                v.z += tdz / d * sp;
+                float targetYaw = (float) Math.toDegrees(Math.atan2(tdx, tdz));
+                float dy = targetYaw - v.yaw;
+                while (dy > 180f) dy -= 360f;
+                while (dy < -180f) dy += 360f;
+                v.yaw += dy * Math.min(1f, dt * 6f);
+                v.walkPhase += dt * 8f;
+            }
+            v.y = world.cityGroundHeight(v.cityIndex);
+        }
+    }
+
+    private void drawVillagers() {
+        if (villagers.isEmpty()) return;
+        if (villagerVbo == -1) uploadVillagerMesh();
+        if (villagerCount <= 0 || villagerVbo == -1 || villagerIbo == -1) return;
+
+        blockShader.bind();
+        GLES20.glUniform1i(uTex, 0);
+        GLES20.glUniform1f(uWave, 0f);
+        GLES20.glUniform1f(uShadowEnabled, 0f);
+        GLES20.glUniform1f(uAmbient, ambient);
+        GLES20.glUniform3f(uFogColor, fogR, fogG, fogB);
+        GLES20.glUniform1f(uFogStart, Math.max(24f, renderDist - 64f));
+        GLES20.glUniform1f(uFogEnd, renderDist);
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, atlas.getTextureId());
+        GLES20.glEnableVertexAttribArray(aPos);
+        GLES20.glEnableVertexAttribArray(aTile);
+        GLES20.glEnableVertexAttribArray(aShade);
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, villagerVbo);
+        GLES20.glVertexAttribPointer(aPos, 3, GLES20.GL_FLOAT, false, VERTEX_STRIDE, 0);
+        GLES20.glVertexAttribPointer(aTile, 3, GLES20.GL_FLOAT, false, VERTEX_STRIDE, 12);
+        GLES20.glVertexAttribPointer(aShade, 1, GLES20.GL_FLOAT, false, VERTEX_STRIDE, 24);
+        GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, villagerIbo);
+        for (int i = 0; i < villagers.size(); i++) {
+            Villager v = villagers.get(i);
+            float dx = v.x - camera.x, dz = v.z - camera.z;
+            if (dx * dx + dz * dz > 120f * 120f) continue;
+            float bob = (float) Math.abs(Math.sin(v.walkPhase)) * 0.06f;
+            Matrix.setIdentityM(villagerModel, 0);
+            Matrix.translateM(villagerModel, 0, v.x, v.y + bob, v.z);
+            Matrix.rotateM(villagerModel, 0, v.yaw, 0f, 1f, 0f);
+            Matrix.multiplyMM(villagerMvp, 0, vp, 0, villagerModel, 0);
+            GLES20.glUniformMatrix4fv(uMVP, 1, false, villagerMvp, 0);
+            GLES20.glUniform3f(uChunkOffset, 0f, 0f, 0f);
+            GLES20.glDrawElements(GLES20.GL_TRIANGLES, villagerCount, GLES20.GL_UNSIGNED_SHORT, 0);
+        }
+        GLES20.glDisableVertexAttribArray(aPos);
+        GLES20.glDisableVertexAttribArray(aTile);
+        GLES20.glDisableVertexAttribArray(aShade);
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0);
+        GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, 0);
+    }
+
+    private void uploadVillagerMesh() {
+        MeshData md = ChunkMesh.buildVillagerMesh();
+        int[] ids = new int[1];
+        GLES20.glGenBuffers(1, ids, 0);
+        villagerVbo = ids[0];
+        GLES20.glGenBuffers(1, ids, 0);
+        villagerIbo = ids[0];
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, villagerVbo);
+        FloatBuffer vb = ByteBuffer.allocateDirect(md.vertices.length * 4)
+                .order(ByteOrder.nativeOrder()).asFloatBuffer();
+        vb.put(md.vertices);
+        vb.position(0);
+        GLES20.glBufferData(GLES20.GL_ARRAY_BUFFER, md.vertices.length * 4, vb, GLES20.GL_STATIC_DRAW);
+        GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, villagerIbo);
+        ShortBuffer ib = ByteBuffer.allocateDirect(md.indices.length * 2)
+                .order(ByteOrder.nativeOrder()).asShortBuffer();
+        ib.put(md.indices);
+        ib.position(0);
+        GLES20.glBufferData(GLES20.GL_ELEMENT_ARRAY_BUFFER, md.indices.length * 2, ib, GLES20.GL_STATIC_DRAW);
+        villagerCount = md.indices.length;
     }
 
     private static int edge(float[] v, int p, float ax, float ay, float az, float bx, float by, float bz) {
