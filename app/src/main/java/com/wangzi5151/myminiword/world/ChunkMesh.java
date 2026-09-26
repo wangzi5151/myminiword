@@ -300,6 +300,48 @@ public class ChunkMesh {
         indices.add((short) (base + 3));
     }
 
+    public static MeshData buildCartMesh() {
+        FloatList out = new FloatList(7 * 6 * FLOATS_PER_VERTEX);
+        ShortList idx = new ShortList(7 * 6);
+        int iron = TextureAtlas.IRON_BLOCK;
+        int gold = TextureAtlas.GOLD_BLOCK;
+        emitBox(out, idx, iron, -0.45f, 0.00f, -0.50f, 0.45f, 0.10f, 0.50f);
+        emitBox(out, idx, iron, -0.45f, 0.10f, -0.50f, -0.37f, 0.55f, 0.50f);
+        emitBox(out, idx, iron, 0.37f, 0.10f, -0.50f, 0.45f, 0.55f, 0.50f);
+        emitBox(out, idx, iron, -0.45f, 0.10f, -0.50f, 0.45f, 0.55f, -0.42f);
+        emitBox(out, idx, iron, -0.45f, 0.10f, 0.42f, 0.45f, 0.55f, 0.50f);
+        emitBox(out, idx, gold, -0.47f, 0.55f, -0.52f, 0.47f, 0.60f, -0.40f);
+        emitBox(out, idx, gold, -0.47f, 0.55f, 0.40f, 0.47f, 0.60f, 0.52f);
+        emitBox(out, idx, gold, -0.47f, 0.55f, -0.52f, -0.35f, 0.60f, 0.52f);
+        emitBox(out, idx, gold, 0.35f, 0.55f, -0.52f, 0.47f, 0.60f, 0.52f);
+        return new MeshData(out.toArray(), idx.toArray());
+    }
+
+    private static void emitBox(FloatList out, ShortList indices, int tile,
+                                float x0, float y0, float z0, float x1, float y1, float z1) {
+        for (int face = 0; face < 6; face++) {
+            float[] fv = FACE_VERTS[face];
+            float shade = FACE_SHADE[face];
+            int base = out.size() / FLOATS_PER_VERTEX;
+            for (int c = 0; c < 4; c++) {
+                int o = c * 5;
+                out.add(x0 + fv[o] * (x1 - x0));
+                out.add(y0 + fv[o + 1] * (y1 - y0));
+                out.add(z0 + fv[o + 2] * (z1 - z0));
+                out.add(tile);
+                out.add(fv[o + 3]);
+                out.add(fv[o + 4]);
+                out.add(shade);
+            }
+            indices.add((short) base);
+            indices.add((short) (base + 1));
+            indices.add((short) (base + 2));
+            indices.add((short) base);
+            indices.add((short) (base + 2));
+            indices.add((short) (base + 3));
+        }
+    }
+
     public static MeshData buildBlockMesh(int blockId) {
         BlockType bt = BlockType.get(blockId);
         FloatList out = new FloatList(6 * 4 * FLOATS_PER_VERTEX);

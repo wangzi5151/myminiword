@@ -28,6 +28,7 @@ import javax.microedition.khronos.opengles.GL10;
 public class GameRenderer implements GLSurfaceView.Renderer {
     private static final String BLOCK_VS =
             "uniform mat4 uMVP;\n" +
+            "uniform mat4 uShadowVP;\n" +
             "uniform vec3 uChunkOffset;\n" +
             "uniform mediump float uTime;\n" +
             "uniform mediump float uWave;\n" +
@@ -39,6 +40,7 @@ public class GameRenderer implements GLSurfaceView.Renderer {
             "varying mediump float vShade;\n" +
             "varying mediump float vDist;\n" +
             "varying mediump vec3 vWorld;\n" +
+            "varying highp vec4 vShadowCoord;\n" +
             "void main(){\n" +
             "  vec3 p = aPos + uChunkOffset;\n" +
             "  if (uWave > 0.5) {\n" +
@@ -52,16 +54,23 @@ public class GameRenderer implements GLSurfaceView.Renderer {
             "  vTileLocal = aTile.yz;\n" +
             "  vShade = aShade;\n" +
             "  vDist = length(cp.xyz);\n" +
+            "  vShadowCoord = uShadowVP * vec4(p, 1.0);\n" +
             "}\n";
 
     private static final String BLOCK_FS =
+            "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
+            "precision highp float;\n" +
+            "#else\n" +
             "precision mediump float;\n" +
+            "#endif\n" +
             "uniform sampler2D uTex;\n" +
+            "uniform sampler2D uShadow;\n" +
             "uniform vec3 uFogColor;\n" +
             "uniform vec3 uCamPos;\n" +
             "uniform vec3 uSunDir;\n" +
             "uniform vec3 uSunColor;\n" +
-            "uniform vec2 uResolution;\n" +
+            "uniform float uShadowEnabled;\n" +
+            "uniform float uShadowTexel;\n" +
             "uniform float uFogStart;\n" +
             "uniform float uFogEnd;\n" +
             "uniform float uAmbient;\n" +
@@ -72,17 +81,25 @@ public class GameRenderer implements GLSurfaceView.Renderer {
             "varying mediump float vShade;\n" +
             "varying mediump float vDist;\n" +
             "varying mediump vec3 vWorld;\n" +
-            "vec3 grade(vec3 col){\n" +
-            "  col = max(col, 0.0);\n" +
-            "  float l = dot(col, vec3(0.2126, 0.7152, 0.0722));\n" +
-            "  col = mix(vec3(l), col, 1.14);\n" +
-            "  col = (col - 0.5) * 1.07 + 0.5;\n" +
-            "  col = pow(clamp(col, 0.0, 1.0), vec3(0.95));\n" +
-            "  return clamp(col, 0.0, 1.0);\n" +
+            "varying highp vec4 vShadowCoord;\n" +
+            "float unpackDepth(vec4 c){\n" +
+            "  return dot(c, vec4(1.0, 1.0/255.0, 1.0/65025.0, 1.0/16581375.0));\n" +
             "}\n" +
-            "float vig(){\n" +
-            "  vec2 q = gl_FragCoord.xy / max(uResolution, vec2(1.0)) - 0.5;\n" +
-            "  return clamp(1.0 - dot(q, q) * 0.45, 0.0, 1.0);\n" +
+            "float shadowFactor(){\n" +
+            "  if (uShadowEnabled < 0.5) return 1.0;\n" +
+            "  vec3 p = vShadowCoord.xyz / vShadowCoord.w;\n" +
+            "  p = p * 0.5 + 0.5;\n" +
+            "  if (p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0 || p.z > 1.0) return 1.0;\n" +
+            "  float bias = 0.0012;\n" +
+            "  float sum = 0.0;\n" +
+            "  for (int i = -1; i <= 1; i++) {\n" +
+            "    for (int j = -1; j <= 1; j++) {\n" +
+            "      vec2 o = vec2(float(i), float(j)) * uShadowTexel;\n" +
+            "      float d = unpackDepth(texture2D(uShadow, p.xy + o));\n" +
+            "      sum += (p.z - bias > d) ? 0.0 : 1.0;\n" +
+            "    }\n" +
+            "  }\n" +
+            "  return sum / 9.0;\n" +
             "}\n" +
             "void main(){\n" +
             "  vec2 local = fract(vTileLocal);\n" +
@@ -94,6 +111,10 @@ public class GameRenderer implements GLSurfaceView.Renderer {
             "    bright *= 1.0 + 0.10 * sin(vWorld.x * 1.3 + uTime * 2.0) * cos(vWorld.z * 1.1 - uTime * 1.6);\n" +
             "  }\n" +
             "  c.rgb *= bright;\n" +
+            "  if (uWave < 0.5) {\n" +
+            "    float sh = shadowFactor();\n" +
+            "    c.rgb *= mix(0.60, 1.0, sh);\n" +
+            "  }\n" +
             "  if (uWave > 0.5) {\n" +
             "    float dYdx = cos(vWorld.x * 0.6 + uTime * 1.7) * 0.03;\n" +
             "    float dYdz = -sin(vWorld.z * 0.55 + uTime * 1.3) * 0.0275;\n" +
@@ -107,7 +128,6 @@ public class GameRenderer implements GLSurfaceView.Renderer {
             "  }\n" +
             "  float f = clamp((vDist - uFogStart) / (uFogEnd - uFogStart), 0.0, 1.0);\n" +
             "  c.rgb = mix(c.rgb, uFogColor, f);\n" +
-            "  c.rgb = grade(c.rgb) * vig();\n" +
             "  gl_FragColor = c;\n" +
             "}\n";
 
@@ -132,22 +152,9 @@ public class GameRenderer implements GLSurfaceView.Renderer {
             "uniform vec3 uSunColor;\n" +
             "uniform vec3 uTop;\n" +
             "uniform vec3 uBottom;\n" +
-            "uniform vec2 uResolution;\n" +
             "uniform float uNight;\n" +
             "uniform float uTime;\n" +
             "float hash(vec3 p){ p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }\n" +
-            "vec3 grade(vec3 col){\n" +
-            "  col = max(col, 0.0);\n" +
-            "  float l = dot(col, vec3(0.2126, 0.7152, 0.0722));\n" +
-            "  col = mix(vec3(l), col, 1.14);\n" +
-            "  col = (col - 0.5) * 1.07 + 0.5;\n" +
-            "  col = pow(clamp(col, 0.0, 1.0), vec3(0.95));\n" +
-            "  return clamp(col, 0.0, 1.0);\n" +
-            "}\n" +
-            "float vig(){\n" +
-            "  vec2 q = gl_FragCoord.xy / max(uResolution, vec2(1.0)) - 0.5;\n" +
-            "  return clamp(1.0 - dot(q, q) * 0.45, 0.0, 1.0);\n" +
-            "}\n" +
             "void main(){\n" +
             "  vec3 d = normalize(vDir);\n" +
             "  float h = clamp(d.y, 0.0, 1.0);\n" +
@@ -166,7 +173,7 @@ public class GameRenderer implements GLSurfaceView.Renderer {
             "    float tw = 0.5 + 0.5 * sin(uTime * 3.0 + s * 100.0);\n" +
             "    col += vec3(star * tw) * uNight * smoothstep(0.0, 0.2, d.y);\n" +
             "  }\n" +
-            "  gl_FragColor = vec4(grade(col) * vig(), 1.0);\n" +
+            "  gl_FragColor = vec4(col, 1.0);\n" +
             "}\n";
 
     private static final String CLOUD_VS =
@@ -183,28 +190,14 @@ public class GameRenderer implements GLSurfaceView.Renderer {
             "varying mediump float vDist;\n" +
             "uniform sampler2D uCloudTex;\n" +
             "uniform vec3 uFogColor;\n" +
-            "uniform vec2 uResolution;\n" +
             "uniform float uFogStart;\n" +
             "uniform float uFogEnd;\n" +
             "uniform float uAlpha;\n" +
-            "vec3 grade(vec3 col){\n" +
-            "  col = max(col, 0.0);\n" +
-            "  float l = dot(col, vec3(0.2126, 0.7152, 0.0722));\n" +
-            "  col = mix(vec3(l), col, 1.14);\n" +
-            "  col = (col - 0.5) * 1.07 + 0.5;\n" +
-            "  col = pow(clamp(col, 0.0, 1.0), vec3(0.95));\n" +
-            "  return clamp(col, 0.0, 1.0);\n" +
-            "}\n" +
-            "float vig(){\n" +
-            "  vec2 q = gl_FragCoord.xy / max(uResolution, vec2(1.0)) - 0.5;\n" +
-            "  return clamp(1.0 - dot(q, q) * 0.45, 0.0, 1.0);\n" +
-            "}\n" +
             "void main(){\n" +
             "  vec4 c = texture2D(uCloudTex, vUV);\n" +
             "  if (c.a < 0.03) discard;\n" +
             "  float f = clamp((vDist - uFogStart) / (uFogEnd - uFogStart), 0.0, 1.0);\n" +
             "  vec3 col = mix(c.rgb, uFogColor, f);\n" +
-            "  col = grade(col) * vig();\n" +
             "  gl_FragColor = vec4(col, c.a * uAlpha * (1.0 - f * 0.5));\n" +
             "}\n";
 
@@ -243,6 +236,91 @@ public class GameRenderer implements GLSurfaceView.Renderer {
             "  float d = length(vCorner);\n" +
             "  if (d > 1.0) discard;\n" +
             "  gl_FragColor = vec4(vColor.rgb, vColor.a * (1.0 - d));\n" +
+            "}\n";
+
+    // ---- Shadow map (depth packed into RGBA8) ----
+    private static final String SHADOW_VS =
+            "uniform mat4 uMVP;\n" +
+            "uniform vec3 uChunkOffset;\n" +
+            "attribute vec3 aPos;\n" +
+            "void main(){\n" +
+            "  vec3 p = aPos + uChunkOffset;\n" +
+            "  gl_Position = uMVP * vec4(p, 1.0);\n" +
+            "}\n";
+
+    private static final String SHADOW_FS =
+            "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
+            "precision highp float;\n" +
+            "#else\n" +
+            "precision mediump float;\n" +
+            "#endif\n" +
+            "vec4 packDepth(float d){\n" +
+            "  const vec4 bit = vec4(1.0, 255.0, 65025.0, 16581375.0);\n" +
+            "  vec4 enc = fract(d * bit);\n" +
+            "  enc -= enc.yzww * vec4(1.0/255.0, 1.0/255.0, 1.0/255.0, 0.0);\n" +
+            "  return enc;\n" +
+            "}\n" +
+            "void main(){ gl_FragColor = packDepth(gl_FragCoord.z); }\n";
+
+    // ---- Screen-space post processing ----
+    private static final String POST_VS =
+            "attribute vec2 aPos;\n" +
+            "varying mediump vec2 vUV;\n" +
+            "void main(){\n" +
+            "  vUV = aPos * 0.5 + 0.5;\n" +
+            "  gl_Position = vec4(aPos, 0.0, 1.0);\n" +
+            "}\n";
+
+    private static final String POST_BRIGHT_FS =
+            "precision mediump float;\n" +
+            "varying mediump vec2 vUV;\n" +
+            "uniform sampler2D uScene;\n" +
+            "uniform float uThreshold;\n" +
+            "void main(){\n" +
+            "  vec3 c = texture2D(uScene, vUV).rgb;\n" +
+            "  float l = dot(c, vec3(0.2126, 0.7152, 0.0722));\n" +
+            "  float k = max(l - uThreshold, 0.0) / max(l, 0.0001);\n" +
+            "  gl_FragColor = vec4(c * k, 1.0);\n" +
+            "}\n";
+
+    private static final String POST_BLUR_FS =
+            "precision mediump float;\n" +
+            "varying mediump vec2 vUV;\n" +
+            "uniform sampler2D uScene;\n" +
+            "uniform vec2 uDir;\n" +
+            "void main(){\n" +
+            "  vec3 sum = texture2D(uScene, vUV).rgb * 0.227027;\n" +
+            "  sum += texture2D(uScene, vUV + uDir * 1.384615).rgb * 0.316216;\n" +
+            "  sum += texture2D(uScene, vUV - uDir * 1.384615).rgb * 0.316216;\n" +
+            "  sum += texture2D(uScene, vUV + uDir * 3.230769).rgb * 0.070270;\n" +
+            "  sum += texture2D(uScene, vUV - uDir * 3.230769).rgb * 0.070270;\n" +
+            "  gl_FragColor = vec4(sum, 1.0);\n" +
+            "}\n";
+
+    private static final String POST_COMPOSITE_FS =
+            "precision mediump float;\n" +
+            "varying mediump vec2 vUV;\n" +
+            "uniform sampler2D uScene;\n" +
+            "uniform sampler2D uBloom;\n" +
+            "uniform vec3 uSunColor;\n" +
+            "uniform float uExposure;\n" +
+            "uniform float uBloomStrength;\n" +
+            "vec3 aces(vec3 x){\n" +
+            "  x *= uExposure;\n" +
+            "  return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);\n" +
+            "}\n" +
+            "void main(){\n" +
+            "  vec3 c = texture2D(uScene, vUV).rgb;\n" +
+            "  vec3 b = texture2D(uBloom, vUV).rgb;\n" +
+            "  c += b * uBloomStrength * uSunColor;\n" +
+            "  c = aces(c);\n" +
+            "  float l = dot(c, vec3(0.2126, 0.7152, 0.0722));\n" +
+            "  c = mix(vec3(l), c, 1.16);\n" +
+            "  c = (c - 0.5) * 1.06 + 0.5;\n" +
+            "  c = pow(clamp(c, 0.0, 1.0), vec3(0.96));\n" +
+            "  vec2 q = vUV - 0.5;\n" +
+            "  c *= clamp(1.0 - dot(q, q) * 0.5, 0.0, 1.0);\n" +
+            "  gl_FragColor = vec4(c, 1.0);\n" +
             "}\n";
 
     private static final float[] PART_COLORS = {
@@ -305,14 +383,38 @@ public class GameRenderer implements GLSurfaceView.Renderer {
     private ShaderProgram skyShader;
     private ShaderProgram cloudShader;
     private ShaderProgram partShader;
+    private ShaderProgram shadowShader;
+    private ShaderProgram brightShader;
+    private ShaderProgram blurShader;
+    private ShaderProgram compositeShader;
+
+    // Off-screen render targets (scene + bloom ping-pong + shadow map)
+    private static final int SHADOW_SIZE = 1024;
+    private static final float SHADOW_HALF = 82f;
+    private static final int BLOOM_DIV = 4;
+    private int sceneFbo = -1, sceneTex = -1, sceneDepth = -1;
+    private int bloomFboA = -1, bloomTexA = -1;
+    private int bloomFboB = -1, bloomTexB = -1;
+    private int shadowFbo = -1, shadowTex = -1, shadowDepth = -1;
+    private int bloomW = 1, bloomH = 1;
+    private volatile boolean postEnabled = false;
+    private volatile boolean shadowEnabled = false;
+    private boolean shadowActive = false;
+    private final float[] lightView = new float[16];
+    private final float[] lightProj = new float[16];
+    private final float[] lightVP = new float[16];
 
     private int aPos, aTile, aShade;
     private int uMVP, uChunkOffset, uTex, uFogColor, uFogStart, uFogEnd, uAmbient, uTime, uWave;
-    private int uCamPos, uSunDir, uSunColor, uResolution;
+    private int uCamPos, uSunDir, uSunColor, uShadow, uShadowVP, uShadowEnabled, uShadowTexel;
     private int lPos, lMVP, lColor;
+    private int shPos, shMVP, shOffset;
+    private int pbPos, pbScene, pbThreshold;
+    private int pblPos, pblScene, pblDir;
+    private int pcPos, pcScene, pcBloom, pcSunColor, pcExposure, pcBloomStrength;
     private int skyPos, skyFwd, skyRight, skyUp, skyTan, skyAspect;
-    private int skySunDir, skyMoonDir, skySunColor, skyTop, skyBottom, skyNight, skyTime, skyResolution;
-    private int cldPos, cldUV, cldMVP, cldTex, cldFog, cldFogStart, cldFogEnd, cldAlpha, cldResolution;
+    private int skySunDir, skyMoonDir, skySunColor, skyTop, skyBottom, skyNight, skyTime;
+    private int cldPos, cldUV, cldMVP, cldTex, cldFog, cldFogStart, cldFogEnd, cldAlpha;
     private int screenW = 1, screenH = 1;
     private int prPos, prColor, prCorner, prMVP, prRight, prUp, prSize;
 
@@ -337,6 +439,9 @@ public class GameRenderer implements GLSurfaceView.Renderer {
     private float cartSpeed = CART_SPEED;
     private boolean atStation = false;
     private int lastPassedCity = -1;
+    private float cartYaw = 0f, cartRoll = 0f;
+    private final float[] cartModel = new float[16];
+    private final float[] cartMvp = new float[16];
 
     private long lastNanos = 0L;
     private int frames = 0;
@@ -504,7 +609,10 @@ public class GameRenderer implements GLSurfaceView.Renderer {
         uCamPos = blockShader.getUniform("uCamPos");
         uSunDir = blockShader.getUniform("uSunDir");
         uSunColor = blockShader.getUniform("uSunColor");
-        uResolution = blockShader.getUniform("uResolution");
+        uShadow = blockShader.getUniform("uShadow");
+        uShadowVP = blockShader.getUniform("uShadowVP");
+        uShadowEnabled = blockShader.getUniform("uShadowEnabled");
+        uShadowTexel = blockShader.getUniform("uShadowTexel");
 
         lineShader = new ShaderProgram(LINE_VS, LINE_FS);
         lPos = lineShader.getAttribute("aPos");
@@ -525,7 +633,6 @@ public class GameRenderer implements GLSurfaceView.Renderer {
         skyBottom = skyShader.getUniform("uBottom");
         skyNight = skyShader.getUniform("uNight");
         skyTime = skyShader.getUniform("uTime");
-        skyResolution = skyShader.getUniform("uResolution");
 
         cloudShader = new ShaderProgram(CLOUD_VS, CLOUD_FS);
         cldPos = cloudShader.getAttribute("aPos");
@@ -536,7 +643,6 @@ public class GameRenderer implements GLSurfaceView.Renderer {
         cldFogStart = cloudShader.getUniform("uFogStart");
         cldFogEnd = cloudShader.getUniform("uFogEnd");
         cldAlpha = cloudShader.getUniform("uAlpha");
-        cldResolution = cloudShader.getUniform("uResolution");
 
         partShader = new ShaderProgram(PART_VS, PART_FS);
         prPos = partShader.getAttribute("aPos");
@@ -547,6 +653,39 @@ public class GameRenderer implements GLSurfaceView.Renderer {
         prUp = partShader.getUniform("uCamUp");
         prSize = partShader.getUniform("uSize");
 
+        try {
+            shadowShader = new ShaderProgram(SHADOW_VS, SHADOW_FS);
+            shPos = shadowShader.getAttribute("aPos");
+            shMVP = shadowShader.getUniform("uMVP");
+            shOffset = shadowShader.getUniform("uChunkOffset");
+        } catch (Throwable t) {
+            shadowShader = null;
+        }
+        try {
+            brightShader = new ShaderProgram(POST_VS, POST_BRIGHT_FS);
+            pbPos = brightShader.getAttribute("aPos");
+            pbScene = brightShader.getUniform("uScene");
+            pbThreshold = brightShader.getUniform("uThreshold");
+
+            blurShader = new ShaderProgram(POST_VS, POST_BLUR_FS);
+            pblPos = blurShader.getAttribute("aPos");
+            pblScene = blurShader.getUniform("uScene");
+            pblDir = blurShader.getUniform("uDir");
+
+            compositeShader = new ShaderProgram(POST_VS, POST_COMPOSITE_FS);
+            pcPos = compositeShader.getAttribute("aPos");
+            pcScene = compositeShader.getUniform("uScene");
+            pcBloom = compositeShader.getUniform("uBloom");
+            pcSunColor = compositeShader.getUniform("uSunColor");
+            pcExposure = compositeShader.getUniform("uExposure");
+            pcBloomStrength = compositeShader.getUniform("uBloomStrength");
+        } catch (Throwable t) {
+            brightShader = null;
+            blurShader = null;
+            compositeShader = null;
+        }
+        Matrix.setIdentityM(lightVP, 0);
+
         int[] ids = new int[4];
         GLES20.glGenBuffers(4, ids, 0);
         lineVbo = ids[0];
@@ -554,6 +693,7 @@ public class GameRenderer implements GLSurfaceView.Renderer {
         cloudVbo = ids[2];
         particleVbo = ids[3];
         uploadSkyQuad();
+        createRenderTargets();
 
         camera = new Camera();
         player = new Player();
@@ -602,6 +742,216 @@ public class GameRenderer implements GLSurfaceView.Renderer {
         GLES20.glBufferData(GLES20.GL_ARRAY_BUFFER, v.length * 4, buf, GLES20.GL_STATIC_DRAW);
     }
 
+    private void destroyRenderTargets() {
+        int[] one = new int[1];
+        if (sceneFbo != -1) { one[0] = sceneFbo; GLES20.glDeleteFramebuffers(1, one, 0); sceneFbo = -1; }
+        if (sceneTex != -1) { one[0] = sceneTex; GLES20.glDeleteTextures(1, one, 0); sceneTex = -1; }
+        if (sceneDepth != -1) { one[0] = sceneDepth; GLES20.glDeleteRenderbuffers(1, one, 0); sceneDepth = -1; }
+        if (bloomFboA != -1) { one[0] = bloomFboA; GLES20.glDeleteFramebuffers(1, one, 0); bloomFboA = -1; }
+        if (bloomFboB != -1) { one[0] = bloomFboB; GLES20.glDeleteFramebuffers(1, one, 0); bloomFboB = -1; }
+        if (bloomTexA != -1) { one[0] = bloomTexA; GLES20.glDeleteTextures(1, one, 0); bloomTexA = -1; }
+        if (bloomTexB != -1) { one[0] = bloomTexB; GLES20.glDeleteTextures(1, one, 0); bloomTexB = -1; }
+        if (shadowFbo != -1) { one[0] = shadowFbo; GLES20.glDeleteFramebuffers(1, one, 0); shadowFbo = -1; }
+        if (shadowTex != -1) { one[0] = shadowTex; GLES20.glDeleteTextures(1, one, 0); shadowTex = -1; }
+        if (shadowDepth != -1) { one[0] = shadowDepth; GLES20.glDeleteRenderbuffers(1, one, 0); shadowDepth = -1; }
+    }
+
+    private static void texParams() {
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
+    }
+
+    private static int makeColorTex(int w, int h) {
+        int[] t = new int[1];
+        GLES20.glGenTextures(1, t, 0);
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, t[0]);
+        GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, w, h, 0,
+                GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, null);
+        texParams();
+        return t[0];
+    }
+
+    private static int makeFbo(int colorTex, int depthRb, int w, int h) {
+        int[] f = new int[1];
+        GLES20.glGenFramebuffers(1, f, 0);
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, f[0]);
+        GLES20.glFramebufferTexture2D(GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0,
+                GLES20.GL_TEXTURE_2D, colorTex, 0);
+        if (depthRb != -1) {
+            GLES20.glFramebufferRenderbuffer(GLES20.GL_FRAMEBUFFER, GLES20.GL_DEPTH_ATTACHMENT,
+                    GLES20.GL_RENDERBUFFER, depthRb);
+        }
+        int status = GLES20.glCheckFramebufferStatus(GLES20.GL_FRAMEBUFFER);
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
+        if (status != GLES20.GL_FRAMEBUFFER_COMPLETE) {
+            int[] one = {f[0]};
+            GLES20.glDeleteFramebuffers(1, one, 0);
+            return -1;
+        }
+        return f[0];
+    }
+
+    private static int makeDepthRb(int w, int h) {
+        int[] r = new int[1];
+        GLES20.glGenRenderbuffers(1, r, 0);
+        GLES20.glBindRenderbuffer(GLES20.GL_RENDERBUFFER, r[0]);
+        GLES20.glRenderbufferStorage(GLES20.GL_RENDERBUFFER, GLES20.GL_DEPTH_COMPONENT16, w, h);
+        return r[0];
+    }
+
+    private void createRenderTargets() {
+        destroyRenderTargets();
+        if (screenW < 2 || screenH < 2) {
+            postEnabled = false;
+            shadowEnabled = false;
+            return;
+        }
+        boolean sceneOk = false;
+        try {
+            sceneTex = makeColorTex(screenW, screenH);
+            sceneDepth = makeDepthRb(screenW, screenH);
+            sceneFbo = makeFbo(sceneTex, sceneDepth, screenW, screenH);
+            sceneOk = sceneFbo != -1;
+
+            bloomW = Math.max(1, screenW / BLOOM_DIV);
+            bloomH = Math.max(1, screenH / BLOOM_DIV);
+            bloomTexA = makeColorTex(bloomW, bloomH);
+            bloomTexB = makeColorTex(bloomW, bloomH);
+            bloomFboA = makeFbo(bloomTexA, -1, bloomW, bloomH);
+            bloomFboB = makeFbo(bloomTexB, -1, bloomW, bloomH);
+        } catch (Throwable t) {
+            Diag.setError(t);
+        }
+        boolean bloomOk = bloomFboA != -1 && bloomFboB != -1;
+
+        boolean shadowOk = false;
+        try {
+            shadowTex = makeColorTex(SHADOW_SIZE, SHADOW_SIZE);
+            shadowDepth = makeDepthRb(SHADOW_SIZE, SHADOW_SIZE);
+            shadowFbo = makeFbo(shadowTex, shadowDepth, SHADOW_SIZE, SHADOW_SIZE);
+            shadowOk = shadowFbo != -1;
+        } catch (Throwable t) {
+            Diag.setError(t);
+        }
+
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0);
+        GLES20.glBindRenderbuffer(GLES20.GL_RENDERBUFFER, 0);
+
+        postEnabled = sceneOk && bloomOk && brightShader != null && blurShader != null && compositeShader != null;
+        shadowEnabled = shadowOk && shadowShader != null;
+    }
+
+    private void buildLightVP() {
+        float texel = (2f * SHADOW_HALF) / SHADOW_SIZE;
+        float tx = Math.round(camera.x / texel) * texel;
+        float ty = camera.y;
+        float tz = Math.round(camera.z / texel) * texel;
+        float dist = 150f;
+        float ex = tx - sunDirX * dist, ey = ty - sunDirY * dist, ez = tz - sunDirZ * dist;
+        float ux = 0f, uy = 1f, uz = 0f;
+        if (Math.abs(sunDirY) > 0.985f) { ux = 0f; uy = 0f; uz = 1f; }
+        Matrix.setLookAtM(lightView, 0, ex, ey, ez, tx, ty, tz, ux, uy, uz);
+        Matrix.orthoM(lightProj, 0, -SHADOW_HALF, SHADOW_HALF, -SHADOW_HALF, SHADOW_HALF, 1f, dist * 2f);
+        Matrix.multiplyMM(lightVP, 0, lightProj, 0, lightView, 0);
+    }
+
+    private void renderShadowMap() {
+        buildLightVP();
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, shadowFbo);
+        GLES20.glViewport(0, 0, SHADOW_SIZE, SHADOW_SIZE);
+        GLES20.glClearColor(1f, 1f, 1f, 1f);
+        GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT | GLES20.GL_DEPTH_BUFFER_BIT);
+        GLES20.glEnable(GLES20.GL_DEPTH_TEST);
+        GLES20.glDepthFunc(GLES20.GL_LEQUAL);
+        GLES20.glDisable(GLES20.GL_BLEND);
+        GLES20.glColorMask(true, true, true, true);
+        GLES20.glDisable(GLES20.GL_CULL_FACE);
+
+        shadowShader.bind();
+        GLES20.glUniformMatrix4fv(shMVP, 1, false, lightVP, 0);
+        GLES20.glEnableVertexAttribArray(shPos);
+
+        Chunk[] chunks = world.getRenderChunks();
+        float cx = camera.x, cz = camera.z;
+        float range = SHADOW_HALF + 40f;
+        float range2 = range * range;
+        for (int i = 0; i < chunks.length; i++) {
+            Chunk c = chunks[i];
+            if (!c.generated || c.countOpaque <= 0 || c.vboOpaque == -1 || c.iboOpaque == -1) continue;
+            float vx = c.cx * Chunk.SIZE_X + 8f;
+            float vz = c.cz * Chunk.SIZE_Z + 8f;
+            float dx = vx - cx, dz = vz - cz;
+            if (dx * dx + dz * dz > range2) continue;
+            GLES20.glUniform3f(shOffset, c.cx * Chunk.SIZE_X, 0f, c.cz * Chunk.SIZE_Z);
+            GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, c.vboOpaque);
+            GLES20.glVertexAttribPointer(shPos, 3, GLES20.GL_FLOAT, false, VERTEX_STRIDE, 0);
+            GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, c.iboOpaque);
+            GLES20.glDrawElements(GLES20.GL_TRIANGLES, c.countOpaque, GLES20.GL_UNSIGNED_SHORT, 0);
+        }
+
+        GLES20.glDisableVertexAttribArray(shPos);
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0);
+        GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, 0);
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
+    }
+
+    private void drawFullQuad(int posAttr) {
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, skyVbo);
+        GLES20.glEnableVertexAttribArray(posAttr);
+        GLES20.glVertexAttribPointer(posAttr, 2, GLES20.GL_FLOAT, false, 0, 0);
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 6);
+        GLES20.glDisableVertexAttribArray(posAttr);
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0);
+    }
+
+    private void runPost() {
+        GLES20.glDisable(GLES20.GL_DEPTH_TEST);
+        GLES20.glDisable(GLES20.GL_BLEND);
+        GLES20.glColorMask(true, true, true, true);
+
+        brightShader.bind();
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, sceneTex);
+        GLES20.glUniform1i(pbScene, 0);
+        GLES20.glUniform1f(pbThreshold, 0.85f);
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, bloomFboA);
+        GLES20.glViewport(0, 0, bloomW, bloomH);
+        drawFullQuad(pbPos);
+
+        blurShader.bind();
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, bloomTexA);
+        GLES20.glUniform1i(pblScene, 0);
+        GLES20.glUniform2f(pblDir, 1f / bloomW, 0f);
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, bloomFboB);
+        drawFullQuad(pblPos);
+
+        blurShader.bind();
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, bloomTexB);
+        GLES20.glUniform2f(pblDir, 0f, 1f / bloomH);
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, bloomFboA);
+        drawFullQuad(pblPos);
+
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
+        GLES20.glViewport(0, 0, screenW, screenH);
+        compositeShader.bind();
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, sceneTex);
+        GLES20.glUniform1i(pcScene, 0);
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE1);
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, bloomTexA);
+        GLES20.glUniform1i(pcBloom, 1);
+        GLES20.glUniform3f(pcSunColor, 0.85f + 0.15f * sunColR, 0.85f + 0.15f * sunColG, 0.85f + 0.15f * sunColB);
+        GLES20.glUniform1f(pcExposure, 0.85f);
+        GLES20.glUniform1f(pcBloomStrength, 0.45f);
+        drawFullQuad(pcPos);
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+        GLES20.glEnable(GLES20.GL_DEPTH_TEST);
+    }
+
     private void spawnPlayer() {
         if (hasSaved) {
             player.x = startX;
@@ -628,6 +978,7 @@ public class GameRenderer implements GLSurfaceView.Renderer {
         aspect = (float) width / (float) height;
         screenW = Math.max(1, width);
         screenH = Math.max(1, height);
+        createRenderTargets();
         if (camera != null) camera.setPerspective(74f, aspect, 0.05f, 360f);
     }
 
@@ -681,12 +1032,28 @@ public class GameRenderer implements GLSurfaceView.Renderer {
             }
             extractPlanes(vp);
 
+            boolean usePost = postEnabled && (settings == null || settings.postFx);
+            shadowActive = shadowEnabled && (settings == null || settings.shadows) && sunDirY > 0.10f;
+            if (shadowActive) {
+                renderShadowMap();
+            }
+
+            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, usePost ? sceneFbo : 0);
+            GLES20.glViewport(0, 0, screenW, screenH);
+            GLES20.glClearColor(0.72f, 0.84f, 0.96f, 1f);
+            GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT | GLES20.GL_DEPTH_BUFFER_BIT);
+            GLES20.glEnable(GLES20.GL_DEPTH_TEST);
+
             drawSky();
             drawWorld();
             drawCart();
             drawParticles(dt);
             drawHighlight();
             drawHeldItem();
+
+            if (usePost) {
+                runPost();
+            }
         } catch (Throwable t) {
             Diag.setError(t);
         }
@@ -912,6 +1279,8 @@ public class GameRenderer implements GLSurfaceView.Renderer {
         cartZ = z;
         cartDirX = dx;
         cartDirZ = dz;
+        cartYaw = (float) Math.toDegrees(Math.atan2(dx, dz));
+        cartRoll = 0f;
         cartSpeed = CART_SPEED;
         atStation = false;
         lastPassedCity = nearestCityIndex(x, z);
@@ -1003,6 +1372,16 @@ public class GameRenderer implements GLSurfaceView.Renderer {
                 cartY = ry;
             }
         }
+        float targetYaw = (float) Math.toDegrees(Math.atan2(cartDirX, cartDirZ));
+        float dyaw = targetYaw - cartYaw;
+        while (dyaw > 180f) dyaw -= 360f;
+        while (dyaw < -180f) dyaw += 360f;
+        cartYaw += dyaw * Math.min(1f, dt * 9f);
+        while (cartYaw > 180f) cartYaw -= 360f;
+        while (cartYaw < -180f) cartYaw += 360f;
+        float targetRoll = Math.max(-15f, Math.min(15f, -dyaw * 0.35f));
+        cartRoll += (targetRoll - cartRoll) * Math.min(1f, dt * 6f);
+
         player.x = cartX;
         player.y = cartY + 1.0f;
         player.z = cartZ;
@@ -1126,7 +1505,6 @@ public class GameRenderer implements GLSurfaceView.Renderer {
         GLES20.glUniform3f(skyBottom, skyBotR, skyBotG, skyBotB);
         GLES20.glUniform1f(skyNight, nightFactor);
         GLES20.glUniform1f(skyTime, (float) (System.nanoTime() / 1e9));
-        GLES20.glUniform2f(skyResolution, screenW, screenH);
         GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, skyVbo);
         GLES20.glEnableVertexAttribArray(skyPos);
         GLES20.glVertexAttribPointer(skyPos, 2, GLES20.GL_FLOAT, false, 0, 0);
@@ -1235,7 +1613,12 @@ public class GameRenderer implements GLSurfaceView.Renderer {
         GLES20.glUniform3f(uCamPos, camera.x, camera.y, camera.z);
         GLES20.glUniform3f(uSunDir, sunDirX, sunDirY, sunDirZ);
         GLES20.glUniform3f(uSunColor, sunColR, sunColG, sunColB);
-        GLES20.glUniform2f(uResolution, screenW, screenH);
+        GLES20.glUniformMatrix4fv(uShadowVP, 1, false, lightVP, 0);
+        GLES20.glUniform1f(uShadowEnabled, shadowActive ? 1f : 0f);
+        GLES20.glUniform1f(uShadowTexel, 1f / SHADOW_SIZE);
+        GLES20.glUniform1i(uShadow, 1);
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE1);
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, shadowTex > 0 ? shadowTex : 0);
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, atlas.getTextureId());
         GLES20.glEnableVertexAttribArray(aPos);
@@ -1299,7 +1682,6 @@ public class GameRenderer implements GLSurfaceView.Renderer {
         GLES20.glUniform1f(cldFogStart, fogStart);
         GLES20.glUniform1f(cldFogEnd, fogEnd);
         GLES20.glUniform1f(cldAlpha, alpha);
-        GLES20.glUniform2f(cldResolution, screenW, screenH);
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, atlas.getCloudTextureId());
         GLES20.glEnable(GLES20.GL_BLEND);
@@ -1532,6 +1914,7 @@ public class GameRenderer implements GLSurfaceView.Renderer {
         GLES20.glUniformMatrix4fv(uMVP, 1, false, heldMvp, 0);
         GLES20.glUniform3f(uChunkOffset, 0f, 0f, 0f);
         GLES20.glUniform1f(uWave, 0f);
+        GLES20.glUniform1f(uShadowEnabled, 0f);
         GLES20.glUniform1f(uAmbient, Math.max(ambient, 0.55f));
         GLES20.glUniform1f(uFogStart, 1000f);
         GLES20.glUniform1f(uFogEnd, 2000f);
@@ -1591,10 +1974,19 @@ public class GameRenderer implements GLSurfaceView.Renderer {
         if (cartVbo == -1) uploadCartMesh();
         if (cartCount <= 0 || cartVbo == -1 || cartIbo == -1) return;
 
+        float speedN = Math.min(1f, cartSpeed / CART_SPEED);
+        float bob = (float) Math.sin((System.nanoTime() / 1e9) * 9.0) * 0.012f * speedN;
+        Matrix.setIdentityM(cartModel, 0);
+        Matrix.translateM(cartModel, 0, cartX, cartY + 0.0625f + bob, cartZ);
+        Matrix.rotateM(cartModel, 0, cartYaw, 0f, 1f, 0f);
+        Matrix.rotateM(cartModel, 0, cartRoll, 0f, 0f, 1f);
+        Matrix.multiplyMM(cartMvp, 0, vp, 0, cartModel, 0);
+
         blockShader.bind();
-        GLES20.glUniformMatrix4fv(uMVP, 1, false, vp, 0);
-        GLES20.glUniform3f(uChunkOffset, cartX, cartY, cartZ);
+        GLES20.glUniformMatrix4fv(uMVP, 1, false, cartMvp, 0);
+        GLES20.glUniform3f(uChunkOffset, 0f, 0f, 0f);
         GLES20.glUniform1f(uWave, 0f);
+        GLES20.glUniform1f(uShadowEnabled, 0f);
         GLES20.glUniform1f(uAmbient, ambient);
         GLES20.glUniform3f(uFogColor, fogR, fogG, fogB);
         GLES20.glUniform1f(uFogStart, Math.max(24f, renderDist - 64f));
@@ -1618,7 +2010,7 @@ public class GameRenderer implements GLSurfaceView.Renderer {
     }
 
     private void uploadCartMesh() {
-        MeshData md = ChunkMesh.buildBlockMesh(BlockType.IRON_BLOCK.id);
+        MeshData md = ChunkMesh.buildCartMesh();
         int[] ids = new int[1];
         GLES20.glGenBuffers(1, ids, 0);
         cartVbo = ids[0];

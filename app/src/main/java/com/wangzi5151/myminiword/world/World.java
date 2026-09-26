@@ -16,7 +16,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class World {
     public static final int DEFAULT_VIEW_RADIUS = 7;
-    public static final int TRACK_Y = 60;
+    public static final int TRACK_Y = 46;
     private static final int MIN_RADIUS = 4;
     private static final int MAX_RADIUS = 12;
     private static final int WORKERS = 3;

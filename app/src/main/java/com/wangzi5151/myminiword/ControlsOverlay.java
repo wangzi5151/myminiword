@@ -86,6 +86,8 @@ public class ControlsOverlay extends View {
     private final RectF cloudRect = new RectF();
     private final RectF statsRect = new RectF();
     private final RectF flowRect = new RectF();
+    private final RectF shadowRect = new RectF();
+    private final RectF postRect = new RectF();
     private final RectF dayRect = new RectF();
     private final RectF duskRect = new RectF();
     private final RectF nightRect = new RectF();
@@ -204,7 +206,7 @@ public class ControlsOverlay extends View {
         panelRect.set(pl, pt, pl + pw, pt + ph);
 
         float pad = dp(16);
-        float rowH = ph / 8.5f;
+        float rowH = ph / 10.5f;
         float btn = rowH * 0.62f;
         float right = panelRect.right - pad;
         float valW = rowH * 1.2f;
@@ -214,8 +216,10 @@ public class ControlsOverlay extends View {
         float y3 = panelRect.top + rowH * 3.05f;
         float y4 = panelRect.top + rowH * 4.05f;
         float y5 = panelRect.top + rowH * 5.05f;
-        float y6 = panelRect.top + rowH * 6.15f;
-        float y7 = panelRect.top + rowH * 7.35f;
+        float y6 = panelRect.top + rowH * 6.05f;
+        float y7 = panelRect.top + rowH * 7.05f;
+        float y8 = panelRect.top + rowH * 8.20f;
+        float y9 = panelRect.top + rowH * 9.45f;
 
         rdPlus.set(right - btn, y1 - btn / 2f, right, y1 + btn / 2f);
         rdMinus.set(rdPlus.left - valW - btn, y1 - btn / 2f, rdPlus.left - valW, y1 + btn / 2f);
@@ -226,14 +230,16 @@ public class ControlsOverlay extends View {
         cloudRect.set(right - toggleW, y3 - btn / 2f, right, y3 + btn / 2f);
         statsRect.set(right - toggleW, y4 - btn / 2f, right, y4 + btn / 2f);
         flowRect.set(right - toggleW, y5 - btn / 2f, right, y5 + btn / 2f);
+        shadowRect.set(right - toggleW, y6 - btn / 2f, right, y6 + btn / 2f);
+        postRect.set(right - toggleW, y7 - btn / 2f, right, y7 + btn / 2f);
 
         float innerLeft = panelRect.left + pad;
         float bw = (right - innerLeft - dp(16)) / 3f;
-        dayRect.set(innerLeft, y6 - btn / 2f, innerLeft + bw, y6 + btn / 2f);
-        duskRect.set(dayRect.right + dp(8), y6 - btn / 2f, dayRect.right + dp(8) + bw, y6 + btn / 2f);
-        nightRect.set(duskRect.right + dp(8), y6 - btn / 2f, duskRect.right + dp(8) + bw, y6 + btn / 2f);
+        dayRect.set(innerLeft, y8 - btn / 2f, innerLeft + bw, y8 + btn / 2f);
+        duskRect.set(dayRect.right + dp(8), y8 - btn / 2f, dayRect.right + dp(8) + bw, y8 + btn / 2f);
+        nightRect.set(duskRect.right + dp(8), y8 - btn / 2f, duskRect.right + dp(8) + bw, y8 + btn / 2f);
 
-        resetRect.set(innerLeft, y7 - btn / 2f, right, y7 + btn / 2f);
+        resetRect.set(innerLeft, y9 - btn / 2f, right, y9 + btn / 2f);
         float cb = rowH * 0.75f;
         closeRect.set(panelRect.left + (pw - cb * 2f) / 2f, panelRect.bottom - pad - cb,
                 panelRect.left + (pw + cb * 2f) / 2f, panelRect.bottom - pad);
@@ -486,6 +492,12 @@ public class ControlsOverlay extends View {
 
         labelLeft(canvas, "时间流动", left, flowRect.centerY());
         drawButton(canvas, flowRect, settings.timeFlowing ? "流动" : "暂停", settings.timeFlowing ? 0xFF3FA34D : 0xFF666666, settings.timeFlowing);
+
+        labelLeft(canvas, "实时阴影", left, shadowRect.centerY());
+        drawButton(canvas, shadowRect, settings.shadows ? "开" : "关", settings.shadows ? 0xFF3FA34D : 0xFF666666, settings.shadows);
+
+        labelLeft(canvas, "画质增强", left, postRect.centerY());
+        drawButton(canvas, postRect, settings.postFx ? "开" : "关", settings.postFx ? 0xFF3FA34D : 0xFF666666, settings.postFx);
 
         labelLeft(canvas, "时间", left, dayRect.centerY());
         drawButton(canvas, dayRect, "白天", 0xFFB79A2E, settings.timePreset == 1);
@@ -756,6 +768,10 @@ public class ControlsOverlay extends View {
         } else if (flowRect.contains(x, y)) {
             settings.timeFlowing = !settings.timeFlowing;
             if (settings.timeFlowing) settings.timePreset = -1;
+        } else if (shadowRect.contains(x, y)) {
+            settings.shadows = !settings.shadows;
+        } else if (postRect.contains(x, y)) {
+            settings.postFx = !settings.postFx;
         } else if (dayRect.contains(x, y)) {
             settings.timeFlowing = false;
             settings.timePreset = 1;
