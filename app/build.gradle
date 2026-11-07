@@ -53,7 +53,12 @@ android {
     packaging {
         resources { excludes += '/META-INF/{AL2.0,LGPL2.1}' }
     }
+
+    testOptions {
+        unitTests.returnDefaultValues = true
+    }
 }
 
 dependencies {
+    testImplementation 'junit:junit:4.13.2'
 }

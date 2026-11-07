@@ -12,6 +12,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class World {
@@ -48,27 +55,50 @@ public class World {
     private final ConcurrentHashMap<Long, ConcurrentHashMap<Integer, Byte>> chunkEdits = new ConcurrentHashMap<>();
     private static final int SAVE_MAGIC = 0x5348_4145; // "SHAE"
 
+    private final ExecutorService saveExecutor = Executors.newSingleThreadExecutor(new ThreadFactory() {
+        @Override
+        public Thread newThread(Runnable r) {
+            Thread t = new Thread(r, "world-save");
+            t.setDaemon(true);
+            return t;
+        }
+    });
+    private volatile Future<?> lastSave;
+
     public World(final long seed) {
         this(seed, null);
     }
 
     public World(final long seed, java.io.File saveFile) {
+        this(seed, saveFile, true);
+    }
+
+    World(final long seed, java.io.File saveFile, boolean startWorkers) {
         this.saveFile = saveFile;
         generator = new TerrainGenerator(seed);
         cityGenerator = new CityGenerator(generator);
         loadEdits();
         initialGoal.set(countInRadius(0, 0, DEFAULT_VIEW_RADIUS));
         setCenter(0, 0);
-        for (int w = 0; w < WORKERS; w++) {
-            Thread t = new Thread(new Runnable() {
-                @Override
-                public void run() {
-                    workerLoop();
-                }
-            }, "chunk-worker-" + w);
-            t.setPriority(Thread.NORM_PRIORITY - 1);
-            t.start();
+        if (startWorkers) {
+            for (int w = 0; w < WORKERS; w++) {
+                Thread t = new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        workerLoop();
+                    }
+                }, "chunk-worker-" + w);
+                t.setPriority(Thread.NORM_PRIORITY - 1);
+                t.setDaemon(true);
+                t.start();
+            }
         }
+    }
+
+    void putChunkForTest(Chunk c) {
+        applyEdits(c.cx, c.cz, c);
+        chunks.put(key(c.cx, c.cz), c);
+        snapshotDirty = true;
     }
 
     private void workerLoop() {
@@ -261,12 +291,17 @@ public class World {
     public void processDeletions() {
         Chunk c;
         while ((c = deleteQueue.poll()) != null) {
-            if (c.vboOpaque != -1) GLES20.glDeleteBuffers(1, new int[]{c.vboOpaque}, 0);
-            if (c.iboOpaque != -1) GLES20.glDeleteBuffers(1, new int[]{c.iboOpaque}, 0);
-            if (c.vboTransparent != -1) GLES20.glDeleteBuffers(1, new int[]{c.vboTransparent}, 0);
-            if (c.iboTransparent != -1) GLES20.glDeleteBuffers(1, new int[]{c.iboTransparent}, 0);
-            if (c.vboLiquid != -1) GLES20.glDeleteBuffers(1, new int[]{c.vboLiquid}, 0);
-            if (c.iboLiquid != -1) GLES20.glDeleteBuffers(1, new int[]{c.iboLiquid}, 0);
+            deleteBatches(c.opaqueBatches);
+            deleteBatches(c.transparentBatches);
+            deleteBatches(c.liquidBatches);
+        }
+    }
+
+    private static void deleteBatches(Chunk.GlBatch[] batches) {
+        for (Chunk.GlBatch b : batches) {
+            if (b == null) continue;
+            if (b.vbo != -1) GLES20.glDeleteBuffers(1, new int[]{b.vbo}, 0);
+            if (b.ibo != -1) GLES20.glDeleteBuffers(1, new int[]{b.ibo}, 0);
         }
     }
 
@@ -277,29 +312,45 @@ public class World {
             Chunk c = list[i];
             MeshData om = c.opaqueMesh.get();
             if (om != null) {
-                c.vboOpaque = uploadVertices(c.vboOpaque, om.vertices);
-                c.iboOpaque = uploadIndices(c.iboOpaque, om.indices);
-                c.countOpaque = om.indices.length;
+                c.opaqueBatches = uploadBatches(c.opaqueBatches, om);
+                c.countOpaque = om.indexCount();
                 c.opaqueMesh.compareAndSet(om, null);
                 budget--;
             }
             MeshData tm = c.transparentMesh.get();
             if (tm != null && budget > 0) {
-                c.vboTransparent = uploadVertices(c.vboTransparent, tm.vertices);
-                c.iboTransparent = uploadIndices(c.iboTransparent, tm.indices);
-                c.countTransparent = tm.indices.length;
+                c.transparentBatches = uploadBatches(c.transparentBatches, tm);
+                c.countTransparent = tm.indexCount();
                 c.transparentMesh.compareAndSet(tm, null);
                 budget--;
             }
             MeshData lm = c.liquidMesh.get();
             if (lm != null && budget > 0) {
-                c.vboLiquid = uploadVertices(c.vboLiquid, lm.vertices);
-                c.iboLiquid = uploadIndices(c.iboLiquid, lm.indices);
-                c.countLiquid = lm.indices.length;
+                c.liquidBatches = uploadBatches(c.liquidBatches, lm);
+                c.countLiquid = lm.indexCount();
                 c.liquidMesh.compareAndSet(lm, null);
                 budget--;
             }
         }
+    }
+
+    private Chunk.GlBatch[] uploadBatches(Chunk.GlBatch[] old, MeshData md) {
+        Chunk.GlBatch[] next = new Chunk.GlBatch[md.parts.length];
+        for (int i = 0; i < md.parts.length; i++) {
+            Chunk.GlBatch b = i < old.length ? old[i] : new Chunk.GlBatch();
+            MeshData.Part part = md.parts[i];
+            b.vbo = uploadVertices(b.vbo, part.vertices);
+            b.ibo = uploadIndices(b.ibo, part.indices);
+            b.count = part.indices.length;
+            next[i] = b;
+        }
+        for (int i = md.parts.length; i < old.length; i++) {
+            Chunk.GlBatch b = old[i];
+            if (b == null) continue;
+            if (b.vbo != -1) GLES20.glDeleteBuffers(1, new int[]{b.vbo}, 0);
+            if (b.ibo != -1) GLES20.glDeleteBuffers(1, new int[]{b.ibo}, 0);
+        }
+        return next;
     }
 
     private int uploadVertices(int vbo, float[] data) {
@@ -381,8 +432,8 @@ public class World {
         }
     }
 
-    public void save() {
-        if (saveFile == null || chunkEdits.isEmpty()) return;
+    public Future<?> save() {
+        if (saveFile == null || chunkEdits.isEmpty()) return null;
         final java.util.ArrayList<Object[]> snap = new java.util.ArrayList<>(chunkEdits.size());
         for (java.util.Map.Entry<Long, ConcurrentHashMap<Integer, Byte>> e : chunkEdits.entrySet()) {
             ConcurrentHashMap<Integer, Byte> m = e.getValue();
@@ -392,7 +443,7 @@ public class World {
             }
             snap.add(new Object[]{e.getKey(), entries});
         }
-        Thread t = new Thread(new Runnable() {
+        Future<?> future = saveExecutor.submit(new Runnable() {
             @SuppressWarnings("unchecked")
             @Override
             public void run() {
@@ -426,12 +477,44 @@ public class World {
                     }
                 }
             }
-        }, "world-save");
-        t.start();
+        });
+        lastSave = future;
+        return future;
+    }
+
+    public boolean flushSave(long timeoutMs) {
+        Future<?> future = lastSave;
+        if (future == null) return true;
+        try {
+            future.get(timeoutMs, TimeUnit.MILLISECONDS);
+            return true;
+        } catch (TimeoutException e) {
+            return false;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        } catch (ExecutionException e) {
+            Diag.setError(e.getCause());
+            return false;
+        }
+    }
+
+    public boolean saveAndWait(long timeoutMs) {
+        save();
+        return flushSave(timeoutMs);
     }
 
     public void shutdown() {
         running = false;
+        saveExecutor.shutdown();
+        try {
+            if (!saveExecutor.awaitTermination(2, TimeUnit.SECONDS)) {
+                saveExecutor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            saveExecutor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
 
     // ---- Raycast ----

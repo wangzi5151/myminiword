@@ -2,6 +2,7 @@ package com.wangzi5151.myminiword.world;
 
 import com.wangzi5151.myminiword.engine.TextureAtlas;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 
 public class ChunkMesh {
@@ -56,24 +57,21 @@ public class ChunkMesh {
             }
         }
 
-        FloatList ov = new FloatList(8192);
-        ShortList oi = new ShortList(6144);
-        FloatList tv = new FloatList(2048);
-        ShortList ti = new ShortList(1536);
-        FloatList lv = new FloatList(2048);
-        ShortList li = new ShortList(1536);
+        MeshBuffer ov = new MeshBuffer(8192, 6144);
+        MeshBuffer tv = new MeshBuffer(2048, 1536);
+        MeshBuffer lv = new MeshBuffer(2048, 1536);
 
-        greedyOpaque(pad, ov, oi);
-        perFaceNonOpaque(pad, tv, ti, lv, li);
-        emitRails(pad, tv, ti);
+        greedyOpaque(pad, ov);
+        perFaceNonOpaque(pad, tv, lv);
+        emitRails(pad, tv);
 
-        chunk.opaqueMesh.set(new MeshData(ov.toArray(), oi.toArray()));
-        chunk.transparentMesh.set(new MeshData(tv.toArray(), ti.toArray()));
-        chunk.liquidMesh.set(new MeshData(lv.toArray(), li.toArray()));
+        chunk.opaqueMesh.set(ov.finish());
+        chunk.transparentMesh.set(tv.finish());
+        chunk.liquidMesh.set(lv.finish());
     }
 
     // ---- Greedy meshing for opaque blocks ----
-    private static void greedyOpaque(byte[] pad, FloatList verts, ShortList indices) {
+    private static void greedyOpaque(byte[] pad, MeshBuffer out) {
         int[] dims = {SX, SY, SZ};
         int[] x = new int[3];
         int[] q = new int[3];
@@ -137,7 +135,7 @@ public class ChunkMesh {
                         }
                         pos[0] = pos[1] = pos[2] = 0;
                         pos[d] = x[d];
-                        emitGreedy(verts, indices, pad, d, u, v, pos, i, j, w, h, c);
+                        emitGreedy(out, pad, d, u, v, pos, i, j, w, h, c);
                         for (int l = 0; l < h; l++)
                             for (int k = 0; k < w; k++)
                                 mask[(j + l) * mw + i + k] = 0;
@@ -156,7 +154,7 @@ public class ChunkMesh {
         }
     }
 
-    private static void emitGreedy(FloatList out, ShortList indices, byte[] pad,
+    private static void emitGreedy(MeshBuffer out, byte[] pad,
                                    int d, int u, int v, int[] pos, int i, int j, int w, int h, int c) {
         int sign = c > 0 ? 1 : -1;
         int block = c > 0 ? c : -c;
@@ -170,7 +168,8 @@ public class ChunkMesh {
         int[] su = {-1, 1, 1, -1};
         int[] sv = {-1, -1, 1, 1};
 
-        int base = out.size() / FLOATS_PER_VERTEX;
+        out.ensureRoom(4, 6);
+        int base = out.vertexBase();
         for (int k = 0; k < 4; k++) {
             pos[u] = cu[k];
             pos[v] = cv[k];
@@ -194,24 +193,15 @@ public class ChunkMesh {
             int ao = (occ1 == 1 && occ2 == 1) ? 0 : 3 - (occ1 + occ2 + occC);
             float aoFactor = 0.58f + (ao / 3f) * 0.42f;
 
-            out.add(pos[0]);
-            out.add(pos[1]);
-            out.add(pos[2]);
-            out.add(tile);
-            out.add(cu[k] - i);
-            out.add(vFlip ? (j + h) - cv[k] : cv[k] - j);
-            out.add(baseShade * aoFactor);
+            out.addVertex(pos[0], pos[1], pos[2], tile,
+                    cu[k] - i, vFlip ? (j + h) - cv[k] : cv[k] - j, baseShade * aoFactor);
         }
-        indices.add((short) base);
-        indices.add((short) (base + 1));
-        indices.add((short) (base + 2));
-        indices.add((short) base);
-        indices.add((short) (base + 2));
-        indices.add((short) (base + 3));
+        out.addTriangle(base, base + 1, base + 2);
+        out.addTriangle(base, base + 2, base + 3);
     }
 
     // ---- Per-face meshing for glass / water / other non-opaque blocks ----
-    private static void perFaceNonOpaque(byte[] pad, FloatList tv, ShortList ti, FloatList lv, ShortList li) {
+    private static void perFaceNonOpaque(byte[] pad, MeshBuffer tv, MeshBuffer lv) {
         for (int y = 0; y < SY; y++) {
             for (int z = 0; z < SZ; z++) {
                 for (int x = 0; x < SX; x++) {
@@ -220,21 +210,20 @@ public class ChunkMesh {
                     if (id == BlockType.RAIL_X.id || id == BlockType.RAIL_Z.id) continue;
                     BlockType bt = BlockType.get(id);
                     if (bt.opaque) continue;
-                    FloatList verts = bt.liquid ? lv : tv;
-                    ShortList indices = bt.liquid ? li : ti;
+                    MeshBuffer out = bt.liquid ? lv : tv;
                     for (int face = 0; face < 6; face++) {
                         int nid = padGet(pad, x + FACE_NORMALS[face][0],
                                 y + FACE_NORMALS[face][1],
                                 z + FACE_NORMALS[face][2]);
                         if (!shouldRenderFace(id, nid)) continue;
-                        addFace(verts, indices, x, y, z, face, bt.getTile(face));
+                        addFace(out, x, y, z, face, bt.getTile(face));
                     }
                 }
             }
         }
     }
 
-    private static void emitRails(byte[] pad, FloatList out, ShortList indices) {
+    private static void emitRails(byte[] pad, MeshBuffer out) {
         int railX = BlockType.RAIL_X.id;
         int railZ = BlockType.RAIL_Z.id;
         for (int y = 0; y < SY; y++) {
@@ -244,30 +233,21 @@ public class ChunkMesh {
                     if (id != railX && id != railZ) continue;
                     int tile = id == railX ? TextureAtlas.RAIL_X : TextureAtlas.RAIL_Z;
                     float yy = y + 0.0625f;
-                    int base = out.size() / FLOATS_PER_VERTEX;
+                    out.ensureRoom(4, 6);
+                    int base = out.vertexBase();
                     addVert(out, x, yy, z, tile, 0, 0, 0.95f);
                     addVert(out, x + 1, yy, z, tile, 1, 0, 0.95f);
                     addVert(out, x + 1, yy, z + 1, tile, 1, 1, 0.95f);
                     addVert(out, x, yy, z + 1, tile, 0, 1, 0.95f);
-                    indices.add((short) base);
-                    indices.add((short) (base + 1));
-                    indices.add((short) (base + 2));
-                    indices.add((short) base);
-                    indices.add((short) (base + 2));
-                    indices.add((short) (base + 3));
+                    out.addTriangle(base, base + 1, base + 2);
+                    out.addTriangle(base, base + 2, base + 3);
                 }
             }
         }
     }
 
-    private static void addVert(FloatList out, float x, float y, float z, int tile, float u, float v, float shade) {
-        out.add(x);
-        out.add(y);
-        out.add(z);
-        out.add(tile);
-        out.add(u);
-        out.add(v);
-        out.add(shade);
+    private static void addVert(MeshBuffer out, float x, float y, float z, int tile, float u, float v, float shade) {
+        out.addVertex(x, y, z, tile, u, v, shade);
     }
 
     private static boolean shouldRenderFace(int current, int neighbor) {
@@ -278,115 +258,140 @@ public class ChunkMesh {
         return true;
     }
 
-    private static void addFace(FloatList out, ShortList indices, int x, int y, int z, int face, int tile) {
+    private static void addFace(MeshBuffer out, int x, int y, int z, int face, int tile) {
         float[] verts = FACE_VERTS[face];
         float shade = FACE_SHADE[face];
-        int base = out.size() / FLOATS_PER_VERTEX;
+        out.ensureRoom(4, 6);
+        int base = out.vertexBase();
         for (int c = 0; c < 4; c++) {
             int o = c * 5;
-            out.add(x + verts[o]);
-            out.add(y + verts[o + 1]);
-            out.add(z + verts[o + 2]);
-            out.add(tile);
-            out.add(verts[o + 3]);
-            out.add(verts[o + 4]);
-            out.add(shade);
+            out.addVertex(x + verts[o], y + verts[o + 1], z + verts[o + 2],
+                    tile, verts[o + 3], verts[o + 4], shade);
         }
-        indices.add((short) base);
-        indices.add((short) (base + 1));
-        indices.add((short) (base + 2));
-        indices.add((short) base);
-        indices.add((short) (base + 2));
-        indices.add((short) (base + 3));
+        out.addTriangle(base, base + 1, base + 2);
+        out.addTriangle(base, base + 2, base + 3);
     }
 
     public static MeshData buildCartMesh() {
-        FloatList out = new FloatList(7 * 6 * FLOATS_PER_VERTEX);
-        ShortList idx = new ShortList(7 * 6);
+        MeshBuffer out = new MeshBuffer(7 * 6 * FLOATS_PER_VERTEX, 7 * 6);
         int iron = TextureAtlas.IRON_BLOCK;
         int gold = TextureAtlas.GOLD_BLOCK;
-        emitBox(out, idx, iron, -0.45f, 0.00f, -0.50f, 0.45f, 0.10f, 0.50f);
-        emitBox(out, idx, iron, -0.45f, 0.10f, -0.50f, -0.37f, 0.55f, 0.50f);
-        emitBox(out, idx, iron, 0.37f, 0.10f, -0.50f, 0.45f, 0.55f, 0.50f);
-        emitBox(out, idx, iron, -0.45f, 0.10f, -0.50f, 0.45f, 0.55f, -0.42f);
-        emitBox(out, idx, iron, -0.45f, 0.10f, 0.42f, 0.45f, 0.55f, 0.50f);
-        emitBox(out, idx, gold, -0.47f, 0.55f, -0.52f, 0.47f, 0.60f, -0.40f);
-        emitBox(out, idx, gold, -0.47f, 0.55f, 0.40f, 0.47f, 0.60f, 0.52f);
-        emitBox(out, idx, gold, -0.47f, 0.55f, -0.52f, -0.35f, 0.60f, 0.52f);
-        emitBox(out, idx, gold, 0.35f, 0.55f, -0.52f, 0.47f, 0.60f, 0.52f);
-        return new MeshData(out.toArray(), idx.toArray());
+        emitBox(out, iron, -0.45f, 0.00f, -0.50f, 0.45f, 0.10f, 0.50f);
+        emitBox(out, iron, -0.45f, 0.10f, -0.50f, -0.37f, 0.55f, 0.50f);
+        emitBox(out, iron, 0.37f, 0.10f, -0.50f, 0.45f, 0.55f, 0.50f);
+        emitBox(out, iron, -0.45f, 0.10f, -0.50f, 0.45f, 0.55f, -0.42f);
+        emitBox(out, iron, -0.45f, 0.10f, 0.42f, 0.45f, 0.55f, 0.50f);
+        emitBox(out, gold, -0.47f, 0.55f, -0.52f, 0.47f, 0.60f, -0.40f);
+        emitBox(out, gold, -0.47f, 0.55f, 0.40f, 0.47f, 0.60f, 0.52f);
+        emitBox(out, gold, -0.47f, 0.55f, -0.52f, -0.35f, 0.60f, 0.52f);
+        emitBox(out, gold, 0.35f, 0.55f, -0.52f, 0.47f, 0.60f, 0.52f);
+        return out.finish();
     }
 
     public static MeshData buildVillagerMesh() {
-        FloatList out = new FloatList(10 * 6 * FLOATS_PER_VERTEX);
-        ShortList idx = new ShortList(10 * 6);
+        MeshBuffer out = new MeshBuffer(10 * 6 * FLOATS_PER_VERTEX, 10 * 6);
         int skin = TextureAtlas.SAND;
         int robe = TextureAtlas.BLUE_PLASTER;
         int dark = TextureAtlas.DARK_PLASTER;
-        emitBox(out, idx, dark, -0.20f, 0.00f, -0.10f, -0.06f, 0.72f, 0.10f);
-        emitBox(out, idx, dark, 0.06f, 0.00f, -0.10f, 0.20f, 0.72f, 0.10f);
-        emitBox(out, idx, robe, -0.22f, 0.72f, -0.13f, 0.22f, 1.28f, 0.13f);
-        emitBox(out, idx, robe, -0.34f, 0.78f, -0.11f, -0.22f, 1.24f, 0.11f);
-        emitBox(out, idx, robe, 0.22f, 0.78f, -0.11f, 0.34f, 1.24f, 0.11f);
-        emitBox(out, idx, skin, -0.08f, 1.28f, -0.08f, 0.08f, 1.34f, 0.08f);
-        emitBox(out, idx, skin, -0.18f, 1.34f, -0.18f, 0.18f, 1.70f, 0.18f);
-        emitBox(out, idx, dark, -0.19f, 1.66f, -0.19f, 0.19f, 1.76f, 0.19f);
-        emitBox(out, idx, skin, -0.05f, 1.46f, 0.18f, 0.05f, 1.56f, 0.24f);
-        return new MeshData(out.toArray(), idx.toArray());
+        emitBox(out, dark, -0.20f, 0.00f, -0.10f, -0.06f, 0.72f, 0.10f);
+        emitBox(out, dark, 0.06f, 0.00f, -0.10f, 0.20f, 0.72f, 0.10f);
+        emitBox(out, robe, -0.22f, 0.72f, -0.13f, 0.22f, 1.28f, 0.13f);
+        emitBox(out, robe, -0.34f, 0.78f, -0.11f, -0.22f, 1.24f, 0.11f);
+        emitBox(out, robe, 0.22f, 0.78f, -0.11f, 0.34f, 1.24f, 0.11f);
+        emitBox(out, skin, -0.08f, 1.28f, -0.08f, 0.08f, 1.34f, 0.08f);
+        emitBox(out, skin, -0.18f, 1.34f, -0.18f, 0.18f, 1.70f, 0.18f);
+        emitBox(out, dark, -0.19f, 1.66f, -0.19f, 0.19f, 1.76f, 0.19f);
+        emitBox(out, skin, -0.05f, 1.46f, 0.18f, 0.05f, 1.56f, 0.24f);
+        return out.finish();
     }
 
-    private static void emitBox(FloatList out, ShortList indices, int tile,
+    private static void emitBox(MeshBuffer out, int tile,
                                 float x0, float y0, float z0, float x1, float y1, float z1) {
         for (int face = 0; face < 6; face++) {
             float[] fv = FACE_VERTS[face];
             float shade = FACE_SHADE[face];
-            int base = out.size() / FLOATS_PER_VERTEX;
+            out.ensureRoom(4, 6);
+            int base = out.vertexBase();
             for (int c = 0; c < 4; c++) {
                 int o = c * 5;
-                out.add(x0 + fv[o] * (x1 - x0));
-                out.add(y0 + fv[o + 1] * (y1 - y0));
-                out.add(z0 + fv[o + 2] * (z1 - z0));
-                out.add(tile);
-                out.add(fv[o + 3]);
-                out.add(fv[o + 4]);
-                out.add(shade);
+                out.addVertex(x0 + fv[o] * (x1 - x0),
+                        y0 + fv[o + 1] * (y1 - y0),
+                        z0 + fv[o + 2] * (z1 - z0),
+                        tile, fv[o + 3], fv[o + 4], shade);
             }
-            indices.add((short) base);
-            indices.add((short) (base + 1));
-            indices.add((short) (base + 2));
-            indices.add((short) base);
-            indices.add((short) (base + 2));
-            indices.add((short) (base + 3));
+            out.addTriangle(base, base + 1, base + 2);
+            out.addTriangle(base, base + 2, base + 3);
         }
     }
 
     public static MeshData buildBlockMesh(int blockId) {
         BlockType bt = BlockType.get(blockId);
-        FloatList out = new FloatList(6 * 4 * FLOATS_PER_VERTEX);
-        ShortList idx = new ShortList(6 * 6);
+        MeshBuffer out = new MeshBuffer(6 * 4 * FLOATS_PER_VERTEX, 6 * 6);
         for (int face = 0; face < 6; face++) {
             float[] verts = FACE_VERTS[face];
             float shade = FACE_SHADE[face];
             int tile = bt.getTile(face);
-            int base = out.size() / FLOATS_PER_VERTEX;
+            out.ensureRoom(4, 6);
+            int base = out.vertexBase();
             for (int c = 0; c < 4; c++) {
                 int o = c * 5;
-                out.add(verts[o]);
-                out.add(verts[o + 1]);
-                out.add(verts[o + 2]);
-                out.add(tile);
-                out.add(verts[o + 3]);
-                out.add(verts[o + 4]);
-                out.add(shade);
+                out.addVertex(verts[o], verts[o + 1], verts[o + 2],
+                        tile, verts[o + 3], verts[o + 4], shade);
             }
-            idx.add((short) base);
-            idx.add((short) (base + 1));
-            idx.add((short) (base + 2));
-            idx.add((short) base);
-            idx.add((short) (base + 2));
-            idx.add((short) (base + 3));
+            out.addTriangle(base, base + 1, base + 2);
+            out.addTriangle(base, base + 2, base + 3);
         }
-        return new MeshData(out.toArray(), idx.toArray());
+        return out.finish();
+    }
+
+    private static class MeshBuffer {
+        private final FloatList verts;
+        private final ShortList indices;
+        private final ArrayList<MeshData.Part> parts = new ArrayList<>();
+
+        MeshBuffer(int vertexCapacity, int indexCapacity) {
+            verts = new FloatList(Math.max(16, vertexCapacity));
+            indices = new ShortList(Math.max(16, indexCapacity));
+        }
+
+        int vertexBase() {
+            return verts.size() / FLOATS_PER_VERTEX;
+        }
+
+        void ensureRoom(int vertexCount, int indexCount) {
+            if (vertexBase() + vertexCount > MeshData.MAX_VERTICES
+                    || indices.size() + indexCount > 0x1fffffff) {
+                flush();
+            }
+        }
+
+        void addVertex(float x, float y, float z, int tile, float u, float v, float shade) {
+            verts.add(x);
+            verts.add(y);
+            verts.add(z);
+            verts.add(tile);
+            verts.add(u);
+            verts.add(v);
+            verts.add(shade);
+        }
+
+        void addTriangle(int a, int b, int c) {
+            indices.add((short) a);
+            indices.add((short) b);
+            indices.add((short) c);
+        }
+
+        void flush() {
+            if (indices.size() == 0) return;
+            parts.add(new MeshData.Part(verts.toArray(), indices.toArray()));
+            verts.clear();
+            indices.clear();
+        }
+
+        MeshData finish() {
+            flush();
+            return new MeshData(parts.toArray(new MeshData.Part[0]));
+        }
     }
 
     private static class FloatList {
@@ -406,6 +411,10 @@ public class ChunkMesh {
             return size;
         }
 
+        void clear() {
+            size = 0;
+        }
+
         float[] toArray() {
             return Arrays.copyOf(data, size);
         }
@@ -422,6 +431,14 @@ public class ChunkMesh {
         void add(short s) {
             if (size == data.length) data = Arrays.copyOf(data, size * 2);
             data[size++] = s;
+        }
+
+        int size() {
+            return size;
+        }
+
+        void clear() {
+            size = 0;
         }
 
         short[] toArray() {

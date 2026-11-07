@@ -18,14 +18,19 @@ public class Chunk {
     public final AtomicReference<MeshData> liquidMesh = new AtomicReference<>();
 
     // GL objects
-    public int vboOpaque = -1;
-    public int iboOpaque = -1;
+    public static final GlBatch[] NO_BATCHES = new GlBatch[0];
+
+    public static final class GlBatch {
+        public int vbo = -1;
+        public int ibo = -1;
+        public int count = 0;
+    }
+
+    public GlBatch[] opaqueBatches = NO_BATCHES;
     public int countOpaque = 0;
-    public int vboTransparent = -1;
-    public int iboTransparent = -1;
+    public GlBatch[] transparentBatches = NO_BATCHES;
     public int countTransparent = 0;
-    public int vboLiquid = -1;
-    public int iboLiquid = -1;
+    public GlBatch[] liquidBatches = NO_BATCHES;
     public int countLiquid = 0;
 
     // culling bounds (world space)

@@ -539,6 +539,7 @@ public class GameRenderer implements GLSurfaceView.Renderer {
     public void saveWorld() {
         if (world != null) {
             world.save();
+            world.flushSave(5000L);
         }
         if (player != null) {
             savePlayerState();
@@ -889,16 +890,19 @@ public class GameRenderer implements GLSurfaceView.Renderer {
         float range2 = range * range;
         for (int i = 0; i < chunks.length; i++) {
             Chunk c = chunks[i];
-            if (!c.generated || c.countOpaque <= 0 || c.vboOpaque == -1 || c.iboOpaque == -1) continue;
+            if (!c.generated || c.countOpaque <= 0 || c.opaqueBatches.length == 0) continue;
             float vx = c.cx * Chunk.SIZE_X + 8f;
             float vz = c.cz * Chunk.SIZE_Z + 8f;
             float dx = vx - cx, dz = vz - cz;
             if (dx * dx + dz * dz > range2) continue;
             GLES20.glUniform3f(shOffset, c.cx * Chunk.SIZE_X, 0f, c.cz * Chunk.SIZE_Z);
-            GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, c.vboOpaque);
-            GLES20.glVertexAttribPointer(shPos, 3, GLES20.GL_FLOAT, false, VERTEX_STRIDE, 0);
-            GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, c.iboOpaque);
-            GLES20.glDrawElements(GLES20.GL_TRIANGLES, c.countOpaque, GLES20.GL_UNSIGNED_SHORT, 0);
+            for (Chunk.GlBatch b : c.opaqueBatches) {
+                if (b.count <= 0 || b.vbo == -1 || b.ibo == -1) continue;
+                GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, b.vbo);
+                GLES20.glVertexAttribPointer(shPos, 3, GLES20.GL_FLOAT, false, VERTEX_STRIDE, 0);
+                GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, b.ibo);
+                GLES20.glDrawElements(GLES20.GL_TRIANGLES, b.count, GLES20.GL_UNSIGNED_SHORT, 0);
+            }
         }
 
         GLES20.glDisableVertexAttribArray(shPos);
@@ -1639,23 +1643,28 @@ public class GameRenderer implements GLSurfaceView.Renderer {
     }
 
     private int drawChunk(Chunk c, int pass) {
-        int vbo, ibo, count;
+        Chunk.GlBatch[] batches;
         if (pass == 0) {
-            vbo = c.vboOpaque; ibo = c.iboOpaque; count = c.countOpaque;
+            batches = c.opaqueBatches;
         } else if (pass == 1) {
-            vbo = c.vboTransparent; ibo = c.iboTransparent; count = c.countTransparent;
+            batches = c.transparentBatches;
         } else {
-            vbo = c.vboLiquid; ibo = c.iboLiquid; count = c.countLiquid;
+            batches = c.liquidBatches;
         }
-        if (count <= 0 || vbo == -1 || ibo == -1) return 0;
+        if (batches.length == 0) return 0;
         GLES20.glUniform3f(uChunkOffset, c.cx * Chunk.SIZE_X, 0f, c.cz * Chunk.SIZE_Z);
-        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vbo);
-        GLES20.glVertexAttribPointer(aPos, 3, GLES20.GL_FLOAT, false, VERTEX_STRIDE, 0);
-        GLES20.glVertexAttribPointer(aTile, 3, GLES20.GL_FLOAT, false, VERTEX_STRIDE, 12);
-        GLES20.glVertexAttribPointer(aShade, 1, GLES20.GL_FLOAT, false, VERTEX_STRIDE, 24);
-        GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, ibo);
-        GLES20.glDrawElements(GLES20.GL_TRIANGLES, count, GLES20.GL_UNSIGNED_SHORT, 0);
-        return count / 3;
+        int triangles = 0;
+        for (Chunk.GlBatch b : batches) {
+            if (b.count <= 0 || b.vbo == -1 || b.ibo == -1) continue;
+            GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, b.vbo);
+            GLES20.glVertexAttribPointer(aPos, 3, GLES20.GL_FLOAT, false, VERTEX_STRIDE, 0);
+            GLES20.glVertexAttribPointer(aTile, 3, GLES20.GL_FLOAT, false, VERTEX_STRIDE, 12);
+            GLES20.glVertexAttribPointer(aShade, 1, GLES20.GL_FLOAT, false, VERTEX_STRIDE, 24);
+            GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, b.ibo);
+            GLES20.glDrawElements(GLES20.GL_TRIANGLES, b.count, GLES20.GL_UNSIGNED_SHORT, 0);
+            triangles += b.count / 3;
+        }
+        return triangles;
     }
 
     private void drawClouds(float fogStart, float fogEnd) {
@@ -1955,6 +1964,7 @@ public class GameRenderer implements GLSurfaceView.Renderer {
 
     private void uploadHeldMesh(int blockId) {
         MeshData md = ChunkMesh.buildBlockMesh(blockId);
+        if (md.parts.length == 0) return;
         if (heldVbo == -1) {
             int[] ids = new int[1];
             GLES20.glGenBuffers(1, ids, 0);
@@ -1966,18 +1976,18 @@ public class GameRenderer implements GLSurfaceView.Renderer {
             heldIbo = ids[0];
         }
         GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, heldVbo);
-        FloatBuffer vb = ByteBuffer.allocateDirect(md.vertices.length * 4)
+        FloatBuffer vb = ByteBuffer.allocateDirect(md.parts[0].vertices.length * 4)
                 .order(ByteOrder.nativeOrder()).asFloatBuffer();
-        vb.put(md.vertices);
+        vb.put(md.parts[0].vertices);
         vb.position(0);
-        GLES20.glBufferData(GLES20.GL_ARRAY_BUFFER, md.vertices.length * 4, vb, GLES20.GL_STATIC_DRAW);
+        GLES20.glBufferData(GLES20.GL_ARRAY_BUFFER, md.parts[0].vertices.length * 4, vb, GLES20.GL_STATIC_DRAW);
         GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, heldIbo);
-        ShortBuffer ib = ByteBuffer.allocateDirect(md.indices.length * 2)
+        ShortBuffer ib = ByteBuffer.allocateDirect(md.parts[0].indices.length * 2)
                 .order(ByteOrder.nativeOrder()).asShortBuffer();
-        ib.put(md.indices);
+        ib.put(md.parts[0].indices);
         ib.position(0);
-        GLES20.glBufferData(GLES20.GL_ELEMENT_ARRAY_BUFFER, md.indices.length * 2, ib, GLES20.GL_STATIC_DRAW);
-        heldCount = md.indices.length;
+        GLES20.glBufferData(GLES20.GL_ELEMENT_ARRAY_BUFFER, md.parts[0].indices.length * 2, ib, GLES20.GL_STATIC_DRAW);
+        heldCount = md.parts[0].indices.length;
         heldBlockId = blockId;
     }
 
@@ -2023,24 +2033,25 @@ public class GameRenderer implements GLSurfaceView.Renderer {
 
     private void uploadCartMesh() {
         MeshData md = ChunkMesh.buildCartMesh();
+        if (md.parts.length == 0) return;
         int[] ids = new int[1];
         GLES20.glGenBuffers(1, ids, 0);
         cartVbo = ids[0];
         GLES20.glGenBuffers(1, ids, 0);
         cartIbo = ids[0];
         GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, cartVbo);
-        FloatBuffer vb = ByteBuffer.allocateDirect(md.vertices.length * 4)
+        FloatBuffer vb = ByteBuffer.allocateDirect(md.parts[0].vertices.length * 4)
                 .order(ByteOrder.nativeOrder()).asFloatBuffer();
-        vb.put(md.vertices);
+        vb.put(md.parts[0].vertices);
         vb.position(0);
-        GLES20.glBufferData(GLES20.GL_ARRAY_BUFFER, md.vertices.length * 4, vb, GLES20.GL_STATIC_DRAW);
+        GLES20.glBufferData(GLES20.GL_ARRAY_BUFFER, md.parts[0].vertices.length * 4, vb, GLES20.GL_STATIC_DRAW);
         GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, cartIbo);
-        ShortBuffer ib = ByteBuffer.allocateDirect(md.indices.length * 2)
+        ShortBuffer ib = ByteBuffer.allocateDirect(md.parts[0].indices.length * 2)
                 .order(ByteOrder.nativeOrder()).asShortBuffer();
-        ib.put(md.indices);
+        ib.put(md.parts[0].indices);
         ib.position(0);
-        GLES20.glBufferData(GLES20.GL_ELEMENT_ARRAY_BUFFER, md.indices.length * 2, ib, GLES20.GL_STATIC_DRAW);
-        cartCount = md.indices.length;
+        GLES20.glBufferData(GLES20.GL_ELEMENT_ARRAY_BUFFER, md.parts[0].indices.length * 2, ib, GLES20.GL_STATIC_DRAW);
+        cartCount = md.parts[0].indices.length;
     }
 
     private void updateVillagers(float dt) {
@@ -2170,24 +2181,25 @@ public class GameRenderer implements GLSurfaceView.Renderer {
 
     private void uploadVillagerMesh() {
         MeshData md = ChunkMesh.buildVillagerMesh();
+        if (md.parts.length == 0) return;
         int[] ids = new int[1];
         GLES20.glGenBuffers(1, ids, 0);
         villagerVbo = ids[0];
         GLES20.glGenBuffers(1, ids, 0);
         villagerIbo = ids[0];
         GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, villagerVbo);
-        FloatBuffer vb = ByteBuffer.allocateDirect(md.vertices.length * 4)
+        FloatBuffer vb = ByteBuffer.allocateDirect(md.parts[0].vertices.length * 4)
                 .order(ByteOrder.nativeOrder()).asFloatBuffer();
-        vb.put(md.vertices);
+        vb.put(md.parts[0].vertices);
         vb.position(0);
-        GLES20.glBufferData(GLES20.GL_ARRAY_BUFFER, md.vertices.length * 4, vb, GLES20.GL_STATIC_DRAW);
+        GLES20.glBufferData(GLES20.GL_ARRAY_BUFFER, md.parts[0].vertices.length * 4, vb, GLES20.GL_STATIC_DRAW);
         GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, villagerIbo);
-        ShortBuffer ib = ByteBuffer.allocateDirect(md.indices.length * 2)
+        ShortBuffer ib = ByteBuffer.allocateDirect(md.parts[0].indices.length * 2)
                 .order(ByteOrder.nativeOrder()).asShortBuffer();
-        ib.put(md.indices);
+        ib.put(md.parts[0].indices);
         ib.position(0);
-        GLES20.glBufferData(GLES20.GL_ELEMENT_ARRAY_BUFFER, md.indices.length * 2, ib, GLES20.GL_STATIC_DRAW);
-        villagerCount = md.indices.length;
+        GLES20.glBufferData(GLES20.GL_ELEMENT_ARRAY_BUFFER, md.parts[0].indices.length * 2, ib, GLES20.GL_STATIC_DRAW);
+        villagerCount = md.parts[0].indices.length;
     }
 
     private static int edge(float[] v, int p, float ax, float ay, float az, float bx, float by, float bz) {
