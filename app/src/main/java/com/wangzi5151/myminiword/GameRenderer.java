@@ -8,6 +8,7 @@ import android.opengl.Matrix;
 import com.wangzi5151.myminiword.engine.Camera;
 import com.wangzi5151.myminiword.engine.ShaderProgram;
 import com.wangzi5151.myminiword.engine.TextureAtlas;
+import com.wangzi5151.myminiword.engine.Weather;
 import com.wangzi5151.myminiword.player.Player;
 import com.wangzi5151.myminiword.world.BlockType;
 import com.wangzi5151.myminiword.world.Chunk;
@@ -323,43 +324,6 @@ public class GameRenderer implements GLSurfaceView.Renderer {
             "  gl_FragColor = vec4(c, 1.0);\n" +
             "}\n";
 
-    private static final float[] PART_COLORS = {
-            0, 0, 0,                 // air
-            0.34f, 0.60f, 0.20f,     // grass
-            0.52f, 0.38f, 0.26f,     // dirt
-            0.50f, 0.50f, 0.50f,     // stone
-            0.46f, 0.46f, 0.46f,     // cobble
-            0.86f, 0.82f, 0.64f,     // sand
-            0.40f, 0.30f, 0.19f,     // log
-            0.23f, 0.46f, 0.16f,     // leaves
-            0.66f, 0.52f, 0.30f,     // planks
-            0.18f, 0.38f, 0.78f,     // water
-            0.85f, 0.93f, 1.00f,     // glass
-            0.23f, 0.23f, 0.23f,     // bedrock
-            0.94f, 0.95f, 0.98f,     // snow
-            0.59f, 0.27f, 0.21f,     // brick
-            0.11f, 0.08f, 0.17f,     // obsidian
-            0.49f, 0.48f, 0.47f,     // gravel
-            0.29f, 0.29f, 0.31f,     // coal_ore
-            0.69f, 0.54f, 0.42f,     // iron_ore
-            0.85f, 0.72f, 0.29f,     // gold_ore
-            0.36f, 0.88f, 0.89f,     // diamond_ore
-            0.87f, 0.82f, 0.65f,     // sandstone
-            0.43f, 0.51f, 0.38f,     // mossy
-            0.63f, 0.82f, 0.95f,     // ice
-            0.64f, 0.67f, 0.71f,     // clay
-            0.87f, 0.87f, 0.89f,     // iron_block
-            0.97f, 0.85f, 0.36f,     // gold_block
-            0.48f, 0.92f, 0.91f,     // diamond_block
-            0.54f, 0.42f, 0.23f,     // bookshelf
-            0.87f, 0.70f, 0.36f,     // glowstone
-            0.87f, 0.86f, 0.82f,     // birch_log
-            0.81f, 0.75f, 0.59f,     // birch_planks
-            0.54f, 0.54f, 0.56f,     // stone_brick
-            0.48f, 0.42f, 0.30f,     // rail_x
-            0.48f, 0.42f, 0.30f      // rail_z
-    };
-
     private static final float DAY_LENGTH = 240f;
     private static final int VERTEX_STRIDE = 7 * 4;
     private static final float FIXED_STEP = 1f / 60f;
@@ -387,6 +351,13 @@ public class GameRenderer implements GLSurfaceView.Renderer {
     private ShaderProgram brightShader;
     private ShaderProgram blurShader;
     private ShaderProgram compositeShader;
+    private final Weather weather = new Weather();
+    private int weatherVbo = -1;
+    private float saveTimer = 0f;
+    private float hudTimer = 0f;
+    private boolean wasInWater = false;
+    private boolean underwater = false;
+    private float dustTimer = 0f;
 
     // Off-screen render targets (scene + bloom ping-pong + shadow map)
     private static final int SHADOW_SIZE = 1024;
@@ -444,7 +415,7 @@ public class GameRenderer implements GLSurfaceView.Renderer {
     private final float[] cartMvp = new float[16];
 
     private static final int MAX_VILLAGERS = 48;
-    private static final int VILLAGERS_PER_CITY = 6;
+    private static final int VILLAGERS_PER_CITY = 9;
     private static final float VILLAGER_RANGE = 120f;
     private static final float VILLAGER_DESPAWN = 180f;
     private final java.util.ArrayList<Villager> villagers = new java.util.ArrayList<>();
@@ -486,6 +457,8 @@ public class GameRenderer implements GLSurfaceView.Renderer {
     private final float[] cloudVerts = new float[6 * 5];
 
     private final FloatBuffer particleBuffer = ByteBuffer.allocateDirect(MAX_PARTICLES * 6 * 9 * 4)
+            .order(ByteOrder.nativeOrder()).asFloatBuffer();
+    private final FloatBuffer weatherBuffer = ByteBuffer.allocateDirect(240 * 6 * 9 * 4)
             .order(ByteOrder.nativeOrder()).asFloatBuffer();
     private final float[] particleVerts = new float[MAX_PARTICLES * 6 * 9];
 
@@ -556,6 +529,37 @@ public class GameRenderer implements GLSurfaceView.Renderer {
         startPitch = sp.getFloat("pitch", 0f);
         startFlying = sp.getBoolean("flying", false);
         startSelected = sp.getInt("sel", 1);
+        dayTime = sp.getFloat("dayTime", 0.30f);
+        if (settings != null) {
+            settings.sensitivity = sp.getFloat("sens", settings.sensitivity);
+            settings.renderDistance = sp.getInt("rd", settings.renderDistance);
+            settings.clouds = sp.getBoolean("clouds", settings.clouds);
+            settings.shadows = sp.getBoolean("shadows", settings.shadows);
+            settings.postFx = sp.getBoolean("post", settings.postFx);
+            settings.showStats = sp.getBoolean("stats", settings.showStats);
+            appliedRd = settings.renderDistance;
+            renderDist = settings.renderDistance;
+        }
+        if (settings != null) {
+            settings.autoWeather = sp.getBoolean("autoWeather", true);
+            settings.weather = sp.getInt("weather", 0);
+        }
+        weather.setType(settings == null ? 0 : settings.weather);
+        String inv = sp.getString("inv", "");
+        if (inventory != null && inv != null && !inv.isEmpty()) {
+            for (String part : inv.split(";")) {
+                int c = part.indexOf(':');
+                if (c <= 0) continue;
+                try {
+                    int id = Integer.parseInt(part.substring(0, c));
+                    int n = Integer.parseInt(part.substring(c + 1));
+                    if (id > 0 && id < inventory.counts.length) {
+                        inventory.counts[id] = Math.max(0, n);
+                    }
+                } catch (NumberFormatException ignored) {
+                }
+            }
+        }
     }
 
     private void savePlayerState() {
@@ -569,7 +573,27 @@ public class GameRenderer implements GLSurfaceView.Renderer {
                 .putFloat("pitch", player.pitch)
                 .putBoolean("flying", player.flying)
                 .putInt("sel", input.selectedBlock)
+                .putFloat("dayTime", dayTime)
+                .putFloat("sens", settings == null ? 1f : settings.sensitivity)
+                .putInt("rd", settings == null ? 116 : settings.renderDistance)
+                .putBoolean("clouds", settings == null || settings.clouds)
+                .putBoolean("shadows", settings == null || settings.shadows)
+                .putBoolean("post", settings == null || settings.postFx)
+                .putBoolean("stats", settings == null || settings.showStats)
+                .putBoolean("autoWeather", settings == null || settings.autoWeather)
+                .putInt("weather", weather.type)
+                .putString("inv", inventoryString())
                 .apply();
+    }
+
+    private String inventoryString() {
+        if (inventory == null) return "";
+        StringBuilder sb = new StringBuilder();
+        for (int id = 1; id < inventory.counts.length; id++) {
+            int n = inventory.counts[id];
+            if (n > 0) sb.append(id).append(':').append(n).append(';');
+        }
+        return sb.toString();
     }
 
     @Override
@@ -594,7 +618,7 @@ public class GameRenderer implements GLSurfaceView.Renderer {
         atlas.uploadClouds();
         if (controls != null) {
             android.graphics.Bitmap[] prev = new android.graphics.Bitmap[64];
-            for (int id = 1; id <= 38; id++) {
+            for (int id = 1; id <= BlockType.MAX_ID; id++) {
                 BlockType bt = BlockType.get(id);
                 if (bt == BlockType.AIR) continue;
                 int tile = bt.getTile(BlockType.FACE_PX);
@@ -703,6 +727,9 @@ public class GameRenderer implements GLSurfaceView.Renderer {
         cloudVbo = ids[2];
         particleVbo = ids[3];
         uploadSkyQuad();
+        int[] wid = new int[1];
+        GLES20.glGenBuffers(1, wid, 0);
+        weatherVbo = wid[0];
         createRenderTargets();
 
         camera = new Camera();
@@ -720,8 +747,9 @@ public class GameRenderer implements GLSurfaceView.Renderer {
                         scx = (int) Math.floor(startX) >> 4;
                         scz = (int) Math.floor(startZ) >> 4;
                     } else {
-                        scx = 0;
-                        scz = 0;
+                        int[] c0 = CityGenerator.CITIES[0];
+                        scx = (int) Math.floor(c0[0] + 10.5f) >> 4;
+                        scz = (int) Math.floor(c0[1] + 30.5f) >> 4;
                     }
                     world.setCenter(startX, startZ);
                     long deadline = System.currentTimeMillis() + 20000L;
@@ -972,10 +1000,14 @@ public class GameRenderer implements GLSurfaceView.Renderer {
             player.z = startZ;
             player.flying = startFlying;
             input.selectedBlock = startSelected;
+            // The terrain generator may have changed since the save was written.
+            int surface = world.getSurfaceHeight((int) startX, (int) startZ);
+            if (surface > player.y) player.y = surface + 1.05f;
         } else {
-            player.x = 0.5f;
-            player.z = 0.5f;
-            player.y = world.getSurfaceHeight(0, 0) + 2;
+            int[] c = CityGenerator.CITIES[0];
+            player.x = c[0] + 10.5f;
+            player.z = c[1] + 22.5f;
+            player.y = world.getSurfaceHeight((int) player.x, (int) player.z) + 1.05f;
         }
         player.yaw = startYaw;
         player.pitch = startPitch;
@@ -1018,11 +1050,17 @@ public class GameRenderer implements GLSurfaceView.Renderer {
             world.resetWorld();
             hasSaved = false;
             pendingRespawn = true;
+            weather.setType(Weather.CLEAR);
+            dayTime = 0.30f;
         }
-        if (pendingRespawn && world.isChunkGenerated(0, 0)) {
-            player.x = 0.5f;
-            player.z = 0.5f;
-            player.y = world.getSurfaceHeight(0, 0) + 2;
+        int[] respawnCity = CityGenerator.CITIES[0];
+        int respawnCX = (int) Math.floor(respawnCity[0] + 10.5f) >> 4;
+        int respawnCZ = (int) Math.floor(respawnCity[1] + 22.5f) >> 4;
+        if (pendingRespawn && world.isChunkGenerated(respawnCX, respawnCZ)) {
+            int[] spawnCity = respawnCity;
+            player.x = spawnCity[0] + 10.5f;
+            player.z = spawnCity[1] + 22.5f;
+            player.y = world.getSurfaceHeight((int) player.x, (int) player.z) + 1.05f;
             prevX = player.x;
             prevY = player.y;
             prevZ = player.z;
@@ -1038,10 +1076,32 @@ public class GameRenderer implements GLSurfaceView.Renderer {
             updateDayTime(dt);
             handleInput(dt);
             updateCamera();
+            updateWeather(dt);
+            saveTimer += dt;
+            if (saveTimer > 45f) {
+                saveTimer = 0f;
+                world.save();
+                savePlayerState();
+            }
+            underwater = isUnderwater(camera.x, camera.y, camera.z);
+            if (player.inWater && !wasInWater) {
+                spawnSplash(player.x, player.y + 0.2f, player.z, 14);
+            }
+            wasInWater = player.inWater;
             if (controls != null) {
                 controls.playerX = player.x;
                 controls.playerZ = player.z;
                 controls.playerYaw = player.yaw;
+                controls.playerY = player.y;
+                controls.underwater = underwater;
+                hudTimer += dt;
+                if (hudTimer > 0.25f) {
+                    hudTimer = 0f;
+                    controls.statBiome = world.getBiomeName((int) Math.floor(player.x), (int) Math.floor(player.z));
+                    controls.statWeather = weather.name();
+                    controls.statClock = clockText();
+                    controls.statCity = cityText();
+                }
             }
             extractPlanes(vp);
 
@@ -1055,15 +1115,17 @@ public class GameRenderer implements GLSurfaceView.Renderer {
 
             GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, usePost ? sceneFbo : 0);
             GLES20.glViewport(0, 0, screenW, screenH);
-            GLES20.glClearColor(0.72f, 0.84f, 0.96f, 1f);
+            if (underwater) GLES20.glClearColor(0.05f, 0.20f, 0.34f, 1f);
+            else GLES20.glClearColor(skyBotR, skyBotG, skyBotB, 1f);
             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT | GLES20.GL_DEPTH_BUFFER_BIT);
             GLES20.glEnable(GLES20.GL_DEPTH_TEST);
 
-            drawSky();
+            if (!underwater) drawSky();
             drawWorld();
             drawVillagers();
             drawCart();
             drawParticles(dt);
+            drawWeather(dt);
             drawHighlight();
             drawHeldItem();
 
@@ -1114,6 +1176,38 @@ public class GameRenderer implements GLSurfaceView.Renderer {
         ambient = 0.30f + 0.70f * day + 0.10f * twilight * (1f - night);
         nightFactor = night;
         cloudAlpha = 0.35f + 0.65f * day;
+
+        // Weather: overcast skies, denser fog, occasional lightning.
+        float wet = weather.wetness;
+        if (wet > 0.01f) {
+            float gray = 0.34f + 0.30f * day;
+            skyTopR = mix(skyTopR, gray * 0.92f, wet * 0.8f);
+            skyTopG = mix(skyTopG, gray * 0.96f, wet * 0.8f);
+            skyTopB = mix(skyTopB, gray * 1.05f, wet * 0.8f);
+            skyBotR = mix(skyBotR, gray * 1.05f, wet * 0.85f);
+            skyBotG = mix(skyBotG, gray * 1.08f, wet * 0.85f);
+            skyBotB = mix(skyBotB, gray * 1.14f, wet * 0.85f);
+            fogR = skyBotR;
+            fogG = skyBotG;
+            fogB = skyBotB;
+            sunColR *= 1f - wet * 0.45f;
+            sunColG *= 1f - wet * 0.45f;
+            sunColB *= 1f - wet * 0.40f;
+            ambient *= 1f - wet * 0.26f;
+            cloudAlpha = Math.min(1f, cloudAlpha + wet * 0.5f);
+        }
+        if (weather.flash > 0.01f) {
+            ambient += weather.flash * 0.85f;
+            skyTopR += weather.flash * 0.5f;
+            skyTopG += weather.flash * 0.5f;
+            skyTopB += weather.flash * 0.55f;
+        }
+    }
+
+    private static float mix(float a, float b, float t) {
+        if (t < 0f) t = 0f;
+        if (t > 1f) t = 1f;
+        return a + (b - a) * t;
     }
 
     private static float smoothstep(float e0, float e1, float x) {
@@ -1121,6 +1215,101 @@ public class GameRenderer implements GLSurfaceView.Renderer {
         if (t < 0) t = 0;
         if (t > 1) t = 1;
         return t * t * (3 - 2 * t);
+    }
+
+    private void updateWeather(float dt) {
+        if (world == null || camera == null) return;
+        int wx = (int) Math.floor(player.x);
+        int wz = (int) Math.floor(player.z);
+        boolean cold = world.getGenerator().temperature(wx, wz) < -0.28f;
+        boolean auto = settings == null || settings.autoWeather;
+        int forced = settings == null ? Weather.CLEAR : settings.weather;
+        weather.update(dt, camera.x, camera.y + 4f, camera.z, auto, forced, cold);
+        if (settings != null) settings.weather = weather.type;
+    }
+
+    private boolean isUnderwater(float x, float y, float z) {
+        if (world == null) return false;
+        int id = world.getBlock((int) Math.floor(x), (int) Math.floor(y), (int) Math.floor(z));
+        return BlockType.isLiquid(id);
+    }
+
+    private String clockText() {
+        float hours = (dayTime * 24f + 6f) % 24f;
+        int h = (int) hours;
+        int m = (int) ((hours - h) * 60f);
+        return String.format(java.util.Locale.US, "%02d:%02d", h, m);
+    }
+
+    private String cityText() {
+        int best = -1;
+        float bd = Float.MAX_VALUE;
+        for (int i = 0; i < CityGenerator.CITIES.length; i++) {
+            float dx = CityGenerator.CITIES[i][0] - player.x;
+            float dz = CityGenerator.CITIES[i][1] - player.z;
+            float d2 = dx * dx + dz * dz;
+            if (d2 < bd) {
+                bd = d2;
+                best = i;
+            }
+        }
+        if (best < 0) return "";
+        return "城市 " + Math.round(Math.sqrt(bd)) + "m";
+    }
+
+    private void drawWeather(float dt) {
+        if (weatherVbo == -1 || world == null) return;
+        if (weather.rainDrops > 0) {
+            int floats = weather.buildRain();
+            if (floats > 0) {
+                weatherBuffer.clear();
+                weatherBuffer.put(weather.rainVerts, 0, floats);
+                weatherBuffer.position(0);
+                GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, weatherVbo);
+                GLES20.glBufferData(GLES20.GL_ARRAY_BUFFER, floats * 4, weatherBuffer, GLES20.GL_DYNAMIC_DRAW);
+                lineShader.bind();
+                GLES20.glUniformMatrix4fv(lMVP, 1, false, vp, 0);
+                GLES20.glUniform4f(lColor, 0.66f, 0.78f, 0.94f, weather.type == Weather.STORM ? 0.55f : 0.38f);
+                GLES20.glEnable(GLES20.GL_BLEND);
+                GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA);
+                GLES20.glEnableVertexAttribArray(lPos);
+                GLES20.glVertexAttribPointer(lPos, 3, GLES20.GL_FLOAT, false, 0, 0);
+                GLES20.glDrawArrays(GLES20.GL_LINES, 0, floats / 3);
+                GLES20.glDisableVertexAttribArray(lPos);
+                GLES20.glDisable(GLES20.GL_BLEND);
+            }
+        }
+        if (weather.snowFlakes > 0) {
+            int floats = weather.buildSnow(0.96f, 0.97f, 1f);
+            if (floats > 0) {
+                weatherBuffer.clear();
+                weatherBuffer.put(weather.snowVerts, 0, floats);
+                weatherBuffer.position(0);
+                GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, weatherVbo);
+                GLES20.glBufferData(GLES20.GL_ARRAY_BUFFER, floats * 4, weatherBuffer, GLES20.GL_DYNAMIC_DRAW);
+                partShader.bind();
+                GLES20.glUniformMatrix4fv(prMVP, 1, false, vp, 0);
+                GLES20.glUniform3f(prRight, camRight[0], camRight[1], camRight[2]);
+                GLES20.glUniform3f(prUp, camUp[0], camUp[1], camUp[2]);
+                GLES20.glUniform1f(prSize, 0.075f);
+                GLES20.glEnable(GLES20.GL_BLEND);
+                GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA);
+                GLES20.glDepthMask(false);
+                GLES20.glEnableVertexAttribArray(prPos);
+                GLES20.glEnableVertexAttribArray(prColor);
+                GLES20.glEnableVertexAttribArray(prCorner);
+                GLES20.glVertexAttribPointer(prPos, 3, GLES20.GL_FLOAT, false, 9 * 4, 0);
+                GLES20.glVertexAttribPointer(prColor, 4, GLES20.GL_FLOAT, false, 9 * 4, 12);
+                GLES20.glVertexAttribPointer(prCorner, 2, GLES20.GL_FLOAT, false, 9 * 4, 28);
+                GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, floats / 9);
+                GLES20.glDisableVertexAttribArray(prPos);
+                GLES20.glDisableVertexAttribArray(prColor);
+                GLES20.glDisableVertexAttribArray(prCorner);
+                GLES20.glDepthMask(true);
+                GLES20.glDisable(GLES20.GL_BLEND);
+            }
+        }
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0);
     }
 
     private void updateFps(long now) {
@@ -1243,6 +1432,20 @@ public class GameRenderer implements GLSurfaceView.Renderer {
         float bobAmp = Math.min(1f, hs / 5f);
         bobY = (float) Math.sin(walkPhase * 2.0) * 0.045f * bobAmp;
         bobSide = (float) Math.cos(walkPhase) * 0.035f * bobAmp;
+
+        // Small dust puffs while sprinting on dry land.
+        if (!riding && player.onGround && hs > 4.5f && !player.inWater) {
+            dustTimer -= dt;
+            if (dustTimer <= 0f && atlas != null) {
+                dustTimer = 0.22f;
+                int below = world.getBlock((int) Math.floor(player.x),
+                        (int) Math.floor(player.y - 0.3f), (int) Math.floor(player.z));
+                if (below != 0 && BlockType.isSolid(below)) {
+                    int col = atlas.averageTileColor(BlockType.get(below).getTile(BlockType.FACE_PY));
+                    spawnDust(player.x, player.y, player.z, col, 1);
+                }
+            }
+        }
     }
 
     private void startRide() {
@@ -1565,8 +1768,13 @@ public class GameRenderer implements GLSurfaceView.Renderer {
             }
         }
 
-        float fogStart = Math.max(24f, renderDist - 64f);
-        float fogEnd = renderDist;
+        float fogStart = underwater ? 2f : Math.max(24f, renderDist - 64f);
+        float fogEnd = underwater ? 22f : renderDist;
+        if (underwater) {
+            fogR = 0.05f;
+            fogG = 0.21f;
+            fogB = 0.35f;
+        }
 
         setupBlockPass(fogStart, fogEnd);
 
@@ -1576,7 +1784,7 @@ public class GameRenderer implements GLSurfaceView.Renderer {
             triangles += drawChunk(renderChunks[visOpaque[k]], 0);
         }
 
-        if (settings == null || settings.clouds) {
+        if (!underwater && (settings == null || settings.clouds)) {
             drawClouds(fogStart, fogEnd);
         }
         setupBlockPass(fogStart, fogEnd);
@@ -1757,10 +1965,14 @@ public class GameRenderer implements GLSurfaceView.Renderer {
     }
 
     private void spawnParticles(float x, float y, float z, int blockId, int count) {
-        if (blockId <= 0 || blockId * 3 + 2 >= PART_COLORS.length) return;
-        float cr = PART_COLORS[blockId * 3];
-        float cg = PART_COLORS[blockId * 3 + 1];
-        float cb = PART_COLORS[blockId * 3 + 2];
+        if (blockId <= 0) return;
+        int colour = 0xff888888;
+        if (atlas != null) {
+            colour = atlas.averageTileColor(BlockType.get(blockId).getTile(BlockType.FACE_PZ));
+        }
+        float cr = ((colour >> 16) & 0xff) / 255f;
+        float cg = ((colour >> 8) & 0xff) / 255f;
+        float cb = (colour & 0xff) / 255f;
         for (int i = 0; i < count; i++) {
             int s = findFreeParticle();
             ppx[s] = x + (random.nextFloat() - 0.5f) * 0.8f;
@@ -1771,10 +1983,47 @@ public class GameRenderer implements GLSurfaceView.Renderer {
             pvz[s] = (random.nextFloat() - 0.5f) * 3.2f;
             plife[s] = 0.5f + random.nextFloat() * 0.6f;
             pmax[s] = plife[s];
-            float j = (random.nextFloat() - 0.5f) * 0.15f;
+            float j = (random.nextFloat() - 0.5f) * 0.12f;
             pcr[s] = clamp01(cr + j);
             pcg[s] = clamp01(cg + j);
             pcb[s] = clamp01(cb + j);
+        }
+    }
+
+    private void spawnSplash(float x, float y, float z, int count) {
+        for (int i = 0; i < count; i++) {
+            int s = findFreeParticle();
+            ppx[s] = x + (random.nextFloat() - 0.5f) * 0.5f;
+            ppy[s] = y + random.nextFloat() * 0.3f;
+            ppz[s] = z + (random.nextFloat() - 0.5f) * 0.5f;
+            pvx[s] = (random.nextFloat() - 0.5f) * 2.2f;
+            pvy[s] = 1.2f + random.nextFloat() * 2.2f;
+            pvz[s] = (random.nextFloat() - 0.5f) * 2.2f;
+            plife[s] = 0.35f + random.nextFloat() * 0.5f;
+            pmax[s] = plife[s];
+            pcr[s] = 0.62f;
+            pcg[s] = 0.80f;
+            pcb[s] = 0.98f;
+        }
+    }
+
+    private void spawnDust(float x, float y, float z, int colour, int count) {
+        float cr = ((colour >> 16) & 0xff) / 255f;
+        float cg = ((colour >> 8) & 0xff) / 255f;
+        float cb = (colour & 0xff) / 255f;
+        for (int i = 0; i < count; i++) {
+            int s = findFreeParticle();
+            ppx[s] = x + (random.nextFloat() - 0.5f) * 0.5f;
+            ppy[s] = y + 0.05f;
+            ppz[s] = z + (random.nextFloat() - 0.5f) * 0.5f;
+            pvx[s] = (random.nextFloat() - 0.5f) * 0.9f;
+            pvy[s] = 0.4f + random.nextFloat() * 0.7f;
+            pvz[s] = (random.nextFloat() - 0.5f) * 0.9f;
+            plife[s] = 0.3f + random.nextFloat() * 0.35f;
+            pmax[s] = plife[s];
+            pcr[s] = clamp01(cr + 0.05f);
+            pcg[s] = clamp01(cg + 0.05f);
+            pcb[s] = clamp01(cb + 0.05f);
         }
     }
 
@@ -2079,7 +2328,9 @@ public class GameRenderer implements GLSurfaceView.Renderer {
                 int bx = (int) Math.floor(vx), bz = (int) Math.floor(vz);
                 if (!world.isChunkGenerated(bx >> 4, bz >> 4)) continue;
                 int gy = world.getSurfaceHeight(bx, bz);
-                if (gy < 5 || gy > world.cityGroundHeight(ci)) continue;
+                int cityFloor = world.cityGroundHeight(ci);
+                if (gy < 5 || Math.abs(gy - cityFloor) > 2) continue;
+                if (world.getBlock(bx, gy + 1, bz) != 0 || world.getBlock(bx, gy + 2, bz) != 0) continue;
                 villagers.add(new Villager(vx, gy + 1, vz, ci));
             }
         }

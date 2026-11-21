@@ -10,6 +10,7 @@ public class Player {
     public float pitch = 0f;
     public boolean onGround = false;
     public boolean flying = false;
+    public boolean inWater = false;
 
     public static final float WIDTH = 0.6f;
     public static final float HEIGHT = 1.8f;
@@ -23,7 +24,11 @@ public class Player {
     private static final float HALF = WIDTH / 2f;
 
     public void update(float dt, float moveForward, float moveStrafe, boolean jump, boolean sprint, World world) {
-        float speed = flying ? FLY_SPEED : (sprint ? SPRINT_SPEED : WALK_SPEED);
+        inWater = isInWater(world);
+        float speed;
+        if (flying) speed = FLY_SPEED;
+        else if (inWater) speed = sprint ? 3.9f : 3.0f;
+        else speed = sprint ? SPRINT_SPEED : WALK_SPEED;
 
         float yawRad = (float) Math.toRadians(yaw);
         float fx = (float) Math.sin(yawRad);
@@ -43,6 +48,13 @@ public class Player {
         if (flying) {
             vy = 0f;
             if (jump) vy = FLY_SPEED;
+        } else if (inWater) {
+            // Buoyant swimming: slow sinking, paddle up while the jump button is held.
+            vy -= 7f * dt;
+            if (jump) vy = 3.9f;
+            vy *= 0.86f;
+            if (vy < -4f) vy = -4f;
+            onGround = false;
         } else {
             vy -= GRAVITY * dt;
             if (jump && onGround) {
@@ -106,6 +118,13 @@ public class Player {
         } else if (dy < 0) {
             onGround = false;
         }
+    }
+
+    public boolean isInWater(World world) {
+        int bx = (int) Math.floor(x);
+        int bz = (int) Math.floor(z);
+        int by = (int) Math.floor(y + 0.5f);
+        return com.wangzi5151.myminiword.world.BlockType.isLiquid(world.getBlock(bx, by, bz));
     }
 
     public boolean collides(World world) {

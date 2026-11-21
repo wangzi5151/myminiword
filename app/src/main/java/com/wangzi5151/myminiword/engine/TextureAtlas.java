@@ -9,7 +9,7 @@ import java.util.Random;
 public class TextureAtlas {
     public static final int TILE_PX = 32;
     public static final int TILES = 16;        // grid columns
-    public static final int TILE_COUNT = 40;   // number of tiles
+    public static final int TILE_COUNT = 64;   // number of tiles (4 atlas rows)
     public static final int ATLAS_PX = TILE_PX * TILES;
     private static final float INSET = 0.5f / ATLAS_PX;
 
@@ -53,6 +53,29 @@ public class TextureAtlas {
     public static final int YELLOW_PLASTER = 37;
     public static final int BLUE_PLASTER = 38;
     public static final int DARK_PLASTER = 39;
+    // ---- urban / nature extension tiles ----
+    public static final int ASPHALT = 40;
+    public static final int CONCRETE = 41;
+    public static final int ROOF_TILE = 42;
+    public static final int DARK_GLASS = 43;
+    public static final int STEEL = 44;
+    public static final int HEDGE = 45;
+    public static final int FLOWER_RED = 46;
+    public static final int FLOWER_YELLOW = 47;
+    public static final int TALL_GRASS = 48;
+    public static final int CACTUS = 49;
+    public static final int CACTUS_TOP = 50;
+    public static final int GRANITE = 51;
+    public static final int BASALT = 52;
+    public static final int TERRACOTTA = 53;
+    public static final int ROOF_SLATE = 54;
+    public static final int LAMP = 55;
+    public static final int MUD = 56;
+    public static final int MOSSY_BRICK = 57;
+    public static final int FERN = 58;
+    public static final int SPRUCE_LEAVES = 59;
+    public static final int JUNGLE_LEAVES = 60;
+    public static final int TILE_MAX = 60;
 
     private int textureId = 0;
     private int cloudTextureId = 0;
@@ -333,6 +356,283 @@ public class TextureAtlas {
         noiseTile(YELLOW_PLASTER, rgb(226, 196, 84), 8, r);
         noiseTile(BLUE_PLASTER, rgb(70, 110, 170), 8, r);
         noiseTile(DARK_PLASTER, rgb(58, 50, 48), 8, r);
+
+        // ---- urban / nature extension tiles ----
+        asphaltTile(r);
+        concreteTile(r);
+        roofShingleTile(r);
+        darkGlassTile(r);
+        steelTile(r);
+        hedgeTile(r);
+        flowerTile(FLOWER_RED, r, rgb(206, 44, 58), rgb(248, 214, 206));
+        flowerTile(FLOWER_YELLOW, r, rgb(240, 202, 58), rgb(255, 244, 194));
+        grassSpriteTile(TALL_GRASS, r, rgb(86, 150, 52), 15);
+        cactusTile(r);
+        noiseTile(GRANITE, rgb(158, 120, 118), 13, r);
+        for (int i = 0; i < 60; i++) {
+            set(GRANITE, r.nextInt(TILE_PX), r.nextInt(TILE_PX),
+                    rgb(186 + r.nextInt(30), 150 + r.nextInt(24), 146 + r.nextInt(24)));
+        }
+        noiseTile(BASALT, rgb(72, 72, 80), 11, r);
+        for (int x = 0; x < TILE_PX; x += 7) {
+            for (int y = 0; y < TILE_PX; y++) {
+                int d = r.nextInt(13) - 6;
+                set(BASALT, x, y, rgb(54 + d, 54 + d, 62 + d));
+            }
+        }
+        terracottaTile(r);
+        roofSlateTile(r);
+        lampTile(r);
+        noiseTile(MUD, rgb(92, 76, 58), 16, r);
+        for (int i = 0; i < 28; i++) {
+            set(MUD, r.nextInt(TILE_PX), r.nextInt(TILE_PX), rgb(66 + r.nextInt(22), 54 + r.nextInt(18), 40 + r.nextInt(14)));
+        }
+        System.arraycopy(tiles[STONE_BRICK], 0, tiles[MOSSY_BRICK], 0, TILE_PX * TILE_PX);
+        for (int i = 0; i < 46; i++) {
+            int bx = r.nextInt(TILE_PX), by = r.nextInt(TILE_PX);
+            int n = 2 + r.nextInt(5);
+            for (int j = 0; j < n; j++) {
+                int d = r.nextInt(26);
+                set(MOSSY_BRICK, bx + r.nextInt(5) - 2, by + r.nextInt(5) - 2, rgb(58 + d, 104 + d, 48 + d));
+            }
+        }
+        fernTile(r);
+        leavesVariant(SPRUCE_LEAVES, r, 40, 88, 58);
+        leavesVariant(JUNGLE_LEAVES, r, 74, 164, 62);
+    }
+
+    private void asphaltTile(Random r) {
+        noiseTile(ASPHALT, rgb(58, 58, 63), 8, r);
+        for (int i = 0; i < 46; i++) {
+            int g = 72 + r.nextInt(34);
+            set(ASPHALT, r.nextInt(TILE_PX), r.nextInt(TILE_PX), rgb(g, g, g + 4));
+        }
+        for (int i = 0; i < 3; i++) {
+            int x = r.nextInt(TILE_PX - 8), y = r.nextInt(TILE_PX - 4);
+            for (int k = 0; k < 8; k++) set(ASPHALT, x + k, y + (k & 1), rgb(40, 40, 44));
+        }
+    }
+
+    private void concreteTile(Random r) {
+        noiseTile(CONCRETE, rgb(190, 190, 186), 6, r);
+        for (int i = 0; i < 22; i++) {
+            int g = 200 + r.nextInt(24);
+            set(CONCRETE, r.nextInt(TILE_PX), r.nextInt(TILE_PX), rgb(g, g, g - 4));
+        }
+        for (int x = 0; x < TILE_PX; x++) {
+            set(CONCRETE, x, 0, rgb(168, 168, 164));
+            set(CONCRETE, x, 16, rgb(172, 172, 168));
+        }
+        for (int y = 0; y < TILE_PX; y++) {
+            set(CONCRETE, 0, y, rgb(168, 168, 164));
+            set(CONCRETE, 16, y, rgb(172, 172, 168));
+        }
+    }
+
+    private void roofShingleTile(Random r) {
+        fillTile(ROOF_TILE, rgb(176, 78, 54));
+        for (int y = 0; y < TILE_PX; y++) {
+            int row = y / 6;
+            int offset = (row % 2) * 6;
+            boolean seamRow = (y % 6 == 0) || (y % 6 == 5);
+            for (int x = 0; x < TILE_PX; x++) {
+                boolean seamCol = ((x + offset) % 12 == 0);
+                int d = r.nextInt(19) - 9;
+                if (seamRow || seamCol) set(ROOF_TILE, x, y, rgb(126 + d, 52 + d, 38 + d));
+                else set(ROOF_TILE, x, y, rgb(186 + d, 86 + d, 60 + d));
+            }
+        }
+    }
+
+    private void darkGlassTile(Random r) {
+        fillTile(DARK_GLASS, rgba(30, 44, 62, 200));
+        for (int y = 0; y < TILE_PX; y++) {
+            for (int x = 0; x < TILE_PX; x++) {
+                int d = (x + y) % 16;
+                int a = 190 + d * 3;
+                set(DARK_GLASS, x, y, rgba(34 + d, 52 + d, 76 + d, a > 255 ? 255 : a));
+            }
+        }
+        for (int i = 0; i < TILE_PX; i++) {
+            set(DARK_GLASS, i, 0, rgba(168, 196, 222, 235));
+            set(DARK_GLASS, 0, i, rgba(168, 196, 222, 235));
+            set(DARK_GLASS, i, TILE_PX - 1, rgba(120, 150, 178, 235));
+            set(DARK_GLASS, TILE_PX - 1, i, rgba(120, 150, 178, 235));
+        }
+        for (int i = 0; i < 12; i++) {
+            set(DARK_GLASS, 4 + i, 24 - i, rgba(226, 244, 255, 120));
+        }
+    }
+
+    private void steelTile(Random r) {
+        for (int y = 0; y < TILE_PX; y++) {
+            int g = 132 + (y % 8 == 0 ? 26 : 0);
+            for (int x = 0; x < TILE_PX; x++) {
+                int d = r.nextInt(9) - 4;
+                set(STEEL, x, y, rgb(g + d, g + d, g + 4 + d));
+            }
+        }
+        for (int y = 3; y < TILE_PX; y += 8) {
+            for (int x = 3; x < TILE_PX; x += 8) {
+                set(STEEL, x, y, rgb(186, 188, 194));
+                set(STEEL, x + 1, y, rgb(92, 94, 100));
+                set(STEEL, x, y + 1, rgb(92, 94, 100));
+            }
+        }
+    }
+
+    private void hedgeTile(Random r) {
+        fillTile(HEDGE, rgb(44, 92, 40));
+        for (int i = 0; i < 260; i++) {
+            int x = r.nextInt(TILE_PX), y = r.nextInt(TILE_PX);
+            int d = r.nextInt(46) - 16;
+            set(HEDGE, x, y, rgb(52 + d, 104 + d, 44 + d));
+        }
+        for (int i = 0; i < 40; i++) {
+            set(HEDGE, r.nextInt(TILE_PX), r.nextInt(TILE_PX), rgb(28, 62, 28));
+        }
+    }
+
+    private void flowerTile(int t, Random r, int petal, int highlight) {
+        fillTile(t, 0x00000000);
+        int stem = rgb(64, 118, 46);
+        for (int y = 16; y < TILE_PX; y++) {
+            set(t, TILE_PX / 2, y, stem);
+            set(t, TILE_PX / 2 + 1, y, rgb(52, 98, 38));
+        }
+        for (int i = 0; i < 6; i++) {
+            set(t, TILE_PX / 2 - 4 + i, 22 + (i & 1), rgb(72, 128, 50));
+            set(t, TILE_PX / 2 + 4 - i, 19 + (i & 1), rgb(72, 128, 50));
+        }
+        int cx = TILE_PX / 2, cy = 13;
+        for (int dy = -4; dy <= 4; dy++) {
+            for (int dx = -4; dx <= 4; dx++) {
+                int d2 = dx * dx + dy * dy;
+                if (d2 > 18) continue;
+                int c = (d2 > 8) ? petal : highlight;
+                set(t, cx + dx, cy + dy, c);
+            }
+        }
+        set(t, cx, cy, rgb(250, 226, 120));
+        for (int i = 0; i < 5; i++) {
+            set(t, cx + r.nextInt(7) - 3, cy + r.nextInt(7) - 3, petal);
+        }
+    }
+
+    private void grassSpriteTile(int t, Random r, int base, int blades) {
+        fillTile(t, 0x00000000);
+        for (int i = 0; i < blades; i++) {
+            int x = 1 + r.nextInt(TILE_PX - 2);
+            int h = 10 + r.nextInt(TILE_PX - 8);
+            int lean = r.nextInt(3) - 1;
+            for (int k = 0; k < h; k++) {
+                int d = r.nextInt(37) - 18;
+                int c = (base & 0xff00ff00) | 0xff000000;
+                set(t, x + (k / 6) * lean, TILE_PX - 1 - k,
+                        rgb(((base >> 16) & 0xff) + d, ((base >> 8) & 0xff) + d, (base & 0xff) + d));
+            }
+        }
+    }
+
+    private void cactusTile(Random r) {
+        fillTile(CACTUS, rgb(62, 122, 62));
+        for (int y = 0; y < TILE_PX; y++) {
+            for (int x = 0; x < TILE_PX; x++) {
+                int d = r.nextInt(15) - 7;
+                int rib = (x % 8 < 2) ? -16 : 0;
+                set(CACTUS, x, y, rgb(62 + d + rib, 122 + d + rib, 62 + d + rib));
+            }
+        }
+        for (int i = 0; i < 26; i++) {
+            int x = r.nextInt(TILE_PX), y = r.nextInt(TILE_PX);
+            set(CACTUS, x, y, rgb(226, 232, 206));
+            set(CACTUS, x + 1, y, rgb(96, 140, 82));
+        }
+        fillTile(CACTUS_TOP, rgb(74, 134, 70));
+        for (int y = 0; y < TILE_PX; y++) {
+            for (int x = 0; x < TILE_PX; x++) {
+                int dx = x - TILE_PX / 2, dy = y - TILE_PX / 2;
+                if (dx * dx + dy * dy > 196) continue;
+                int d = r.nextInt(13) - 6;
+                set(CACTUS_TOP, x, y, rgb(84 + d, 146 + d, 76 + d));
+            }
+        }
+    }
+
+    private void terracottaTile(Random r) {
+        noiseTile(TERRACOTTA, rgb(186, 106, 74), 12, r);
+        for (int y = 0; y < TILE_PX; y += 8) {
+            for (int x = 0; x < TILE_PX; x++) set(TERRACOTTA, x, y, rgb(148, 82, 58));
+        }
+        for (int i = 0; i < 30; i++) {
+            set(TERRACOTTA, r.nextInt(TILE_PX), r.nextInt(TILE_PX), rgb(206, 134, 98));
+        }
+    }
+
+    private void roofSlateTile(Random r) {
+        fillTile(ROOF_SLATE, rgb(78, 86, 100));
+        for (int y = 0; y < TILE_PX; y++) {
+            int row = y / 5;
+            int offset = (row % 2) * 5;
+            for (int x = 0; x < TILE_PX; x++) {
+                boolean seam = (y % 5 == 0) || ((x + offset) % 10 == 0);
+                int d = r.nextInt(12) - 6;
+                set(ROOF_SLATE, x, y, seam ? rgb(52 + d, 58 + d, 70 + d) : rgb(84 + d, 92 + d, 108 + d));
+            }
+        }
+    }
+
+    private void lampTile(Random r) {
+        fillTile(LAMP, rgb(64, 56, 46));
+        for (int y = 2; y < TILE_PX - 2; y++) {
+            for (int x = 2; x < TILE_PX - 2; x++) {
+                int dx = x - TILE_PX / 2, dy = y - TILE_PX / 2;
+                int d2 = dx * dx + dy * dy;
+                if (d2 > 150) continue;
+                int warm = 255 - Math.min(90, d2 / 2);
+                set(LAMP, x, y, rgb(warm, (int) (warm * 0.86f), (int) (warm * 0.58f)));
+            }
+        }
+        for (int i = 0; i < TILE_PX; i++) {
+            set(LAMP, i, 0, rgb(58, 50, 42));
+            set(LAMP, i, 1, rgb(92, 78, 60));
+            set(LAMP, i, TILE_PX - 1, rgb(58, 50, 42));
+            set(LAMP, 0, i, rgb(58, 50, 42));
+            set(LAMP, 1, i, rgb(92, 78, 60));
+            set(LAMP, TILE_PX - 1, i, rgb(58, 50, 42));
+        }
+    }
+
+    private void fernTile(Random r) {
+        fillTile(FERN, 0x00000000);
+        for (int f = 0; f < 4; f++) {
+            int baseX = 8 + r.nextInt(16);
+            int baseY = TILE_PX - 1;
+            int h = 12 + r.nextInt(16);
+            for (int k = 0; k < h; k++) {
+                int x = baseX + (int) (Math.sin(k * 0.42f) * (k * 0.35f));
+                int d = r.nextInt(31) - 12;
+                set(FERN, x, baseY - k, rgb(58 + d, 122 + d, 54 + d));
+                if (k % 3 == 0 && k > 2) {
+                    set(FERN, x - 2, baseY - k, rgb(48 + d, 104 + d, 44 + d));
+                    set(FERN, x + 2, baseY - k, rgb(48 + d, 104 + d, 44 + d));
+                }
+            }
+        }
+    }
+
+    private void leavesVariant(int t, Random r, int cr, int cg, int cb) {
+        fillTile(t, rgba(cr, cg, cb, 255));
+        for (int y = 0; y < TILE_PX; y++) {
+            for (int x = 0; x < TILE_PX; x++) {
+                int d = r.nextInt(51) - 24;
+                if (r.nextInt(100) < 16) set(t, x, y, 0x00000000);
+                else set(t, x, y, rgba(cr + d, cg + d, cb + d, 255));
+            }
+        }
+        for (int i = 0; i < 26; i++) {
+            set(t, r.nextInt(TILE_PX), r.nextInt(TILE_PX), rgba(cr - 30, cg - 34, cb - 20, 255));
+        }
     }
 
     private void railTile(int t, boolean alongU, Random r) {
@@ -533,6 +833,24 @@ public class TextureAtlas {
         android.graphics.Bitmap b = android.graphics.Bitmap.createBitmap(TILE_PX, TILE_PX, android.graphics.Bitmap.Config.ARGB_8888);
         b.setPixels(px, 0, TILE_PX, 0, 0, TILE_PX, TILE_PX);
         return b;
+    }
+
+    /** Average opaque colour of a tile, used for break/impact particles. */
+    public int averageTileColor(int tile) {
+        if (tile < 0 || tile >= TILE_COUNT) return 0xff888888;
+        int[] px = tiles[tile];
+        long sr = 0, sg = 0, sb = 0;
+        int n = 0;
+        for (int c : px) {
+            int a = (c >>> 24) & 0xff;
+            if (a < 40) continue;
+            sr += (c >> 16) & 0xff;
+            sg += (c >> 8) & 0xff;
+            sb += c & 0xff;
+            n++;
+        }
+        if (n == 0) return 0xff888888;
+        return 0xff000000 | ((int) (sr / n) << 16) | ((int) (sg / n) << 8) | (int) (sb / n);
     }
 
     public static float[] tileUV(int tile) {

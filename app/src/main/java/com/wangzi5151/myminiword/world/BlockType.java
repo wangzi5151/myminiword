@@ -16,6 +16,7 @@ public class BlockType {
     public final boolean opaque;
     public final boolean liquid;
     public final boolean cutout;
+    public final boolean cross;
     public final float hardness;
 
     private final int top;
@@ -24,12 +25,18 @@ public class BlockType {
 
     public BlockType(int id, String name, boolean solid, boolean opaque, boolean liquid, boolean cutout,
                      float hardness, int top, int bottom, int side) {
+        this(id, name, solid, opaque, liquid, cutout, false, hardness, top, bottom, side);
+    }
+
+    public BlockType(int id, String name, boolean solid, boolean opaque, boolean liquid, boolean cutout,
+                     boolean cross, float hardness, int top, int bottom, int side) {
         this.id = id;
         this.name = name;
         this.solid = solid;
         this.opaque = opaque;
         this.liquid = liquid;
         this.cutout = cutout;
+        this.cross = cross;
         this.hardness = hardness;
         this.top = top;
         this.bottom = bottom;
@@ -91,6 +98,60 @@ public class BlockType {
     public static final BlockType BLUE_PLASTER = register(new BlockType(37, "blue_plaster", true, true, false, false, 1.0f, TextureAtlas.BLUE_PLASTER, TextureAtlas.BLUE_PLASTER, TextureAtlas.BLUE_PLASTER));
     public static final BlockType DARK_PLASTER = register(new BlockType(38, "dark_plaster", true, true, false, false, 1.0f, TextureAtlas.DARK_PLASTER, TextureAtlas.DARK_PLASTER, TextureAtlas.DARK_PLASTER));
 
+    // ---- Urban / nature extension set (ids 39..58) ----
+    public static final BlockType ASPHALT = register(new BlockType(39, "asphalt", true, true, false, false, 1.0f, TextureAtlas.ASPHALT, TextureAtlas.ASPHALT, TextureAtlas.ASPHALT));
+    public static final BlockType CONCRETE = register(new BlockType(40, "concrete", true, true, false, false, 1.2f, TextureAtlas.CONCRETE, TextureAtlas.CONCRETE, TextureAtlas.CONCRETE));
+    public static final BlockType ROOF_TILE = register(new BlockType(41, "roof_tile", true, true, false, false, 1.2f, TextureAtlas.ROOF_TILE, TextureAtlas.ROOF_TILE, TextureAtlas.ROOF_TILE));
+    public static final BlockType DARK_GLASS = register(new BlockType(42, "dark_glass", true, false, false, true, 0.6f, TextureAtlas.DARK_GLASS, TextureAtlas.DARK_GLASS, TextureAtlas.DARK_GLASS));
+    public static final BlockType STEEL = register(new BlockType(43, "steel", true, true, false, false, 3.0f, TextureAtlas.STEEL, TextureAtlas.STEEL, TextureAtlas.STEEL));
+    public static final BlockType HEDGE = register(new BlockType(44, "hedge", true, true, false, true, 0.5f, TextureAtlas.HEDGE, TextureAtlas.HEDGE, TextureAtlas.HEDGE));
+    public static final BlockType FLOWER_RED = register(new BlockType(45, "flower_red", false, false, false, true, true, 0.05f, TextureAtlas.FLOWER_RED, TextureAtlas.FLOWER_RED, TextureAtlas.FLOWER_RED));
+    public static final BlockType FLOWER_YELLOW = register(new BlockType(46, "flower_yellow", false, false, false, true, true, 0.05f, TextureAtlas.FLOWER_YELLOW, TextureAtlas.FLOWER_YELLOW, TextureAtlas.FLOWER_YELLOW));
+    public static final BlockType TALL_GRASS = register(new BlockType(47, "tall_grass", false, false, false, true, true, 0.05f, TextureAtlas.TALL_GRASS, TextureAtlas.TALL_GRASS, TextureAtlas.TALL_GRASS));
+    public static final BlockType CACTUS = register(new BlockType(48, "cactus", true, true, false, false, 0.5f, TextureAtlas.CACTUS_TOP, TextureAtlas.CACTUS_TOP, TextureAtlas.CACTUS));
+    public static final BlockType GRANITE = register(new BlockType(49, "granite", true, true, false, false, 1.8f, TextureAtlas.GRANITE, TextureAtlas.GRANITE, TextureAtlas.GRANITE));
+    public static final BlockType BASALT = register(new BlockType(50, "basalt", true, true, false, false, 2.0f, TextureAtlas.BASALT, TextureAtlas.BASALT, TextureAtlas.BASALT));
+    public static final BlockType TERRACOTTA = register(new BlockType(51, "terracotta", true, true, false, false, 1.4f, TextureAtlas.TERRACOTTA, TextureAtlas.TERRACOTTA, TextureAtlas.TERRACOTTA));
+    public static final BlockType ROOF_SLATE = register(new BlockType(52, "roof_slate", true, true, false, false, 1.6f, TextureAtlas.ROOF_SLATE, TextureAtlas.ROOF_SLATE, TextureAtlas.ROOF_SLATE));
+    public static final BlockType LAMP = register(new BlockType(53, "lamp", true, true, false, false, 0.5f, TextureAtlas.LAMP, TextureAtlas.LAMP, TextureAtlas.LAMP));
+    public static final BlockType MUD = register(new BlockType(54, "mud", true, true, false, false, 0.7f, TextureAtlas.MUD, TextureAtlas.MUD, TextureAtlas.MUD));
+    public static final BlockType MOSSY_BRICK = register(new BlockType(55, "mossy_brick", true, true, false, false, 1.8f, TextureAtlas.MOSSY_BRICK, TextureAtlas.MOSSY_BRICK, TextureAtlas.MOSSY_BRICK));
+    public static final BlockType FERN = register(new BlockType(56, "fern", false, false, false, true, true, 0.05f, TextureAtlas.FERN, TextureAtlas.FERN, TextureAtlas.FERN));
+    public static final BlockType SPRUCE_LEAVES = register(new BlockType(57, "spruce_leaves", true, true, false, true, 0.25f, TextureAtlas.SPRUCE_LEAVES, TextureAtlas.SPRUCE_LEAVES, TextureAtlas.SPRUCE_LEAVES));
+    public static final BlockType JUNGLE_LEAVES = register(new BlockType(58, "jungle_leaves", true, true, false, true, 0.25f, TextureAtlas.JUNGLE_LEAVES, TextureAtlas.JUNGLE_LEAVES, TextureAtlas.JUNGLE_LEAVES));
+
+    public static final int MAX_ID = 58;
+
+    // Fast lookup tables: hot loops in meshing/collision ask these millions of times.
+    public static final boolean[] OPAQUE = new boolean[BLOCKS.length];
+    public static final boolean[] SOLID = new boolean[BLOCKS.length];
+    public static final boolean[] LIQUID = new boolean[BLOCKS.length];
+    public static final boolean[] CUTOUT = new boolean[BLOCKS.length];
+    public static final boolean[] CROSS = new boolean[BLOCKS.length];
+    public static final float[] HARDNESS = new float[BLOCKS.length];
+    /** Blocks that fake a light source by keeping their vertex shade bright. */
+    public static final boolean[] GLOW = new boolean[BLOCKS.length];
+
+    static {
+        for (int i = 0; i < BLOCKS.length; i++) {
+            BlockType b = BLOCKS[i];
+            if (b == null) continue;
+            OPAQUE[i] = b.opaque;
+            SOLID[i] = b.solid;
+            LIQUID[i] = b.liquid;
+            CUTOUT[i] = b.cutout;
+            CROSS[i] = b.cross;
+            HARDNESS[i] = b.hardness;
+        }
+        GLOW[GLOWSTONE.id] = true;
+        GLOW[LAMP.id] = true;
+        GLOW[GLASS.id] = false;
+        // Plants never block movement even if a future tweak marks them solid.
+        for (int i = 0; i < BLOCKS.length; i++) {
+            if (CROSS[i]) SOLID[i] = false;
+        }
+    }
+
     private static BlockType register(BlockType b) {
         if (b.id >= 0 && b.id < BLOCKS.length) BLOCKS[b.id] = b;
         return b;
@@ -102,22 +163,27 @@ public class BlockType {
     }
 
     public static boolean isOpaque(int id) {
-        return get(id).opaque;
+        return id > 0 && id < OPAQUE.length && OPAQUE[id];
     }
 
     public static boolean isSolid(int id) {
-        return get(id).solid;
+        return id > 0 && id < SOLID.length && SOLID[id];
     }
 
     public static boolean isLiquid(int id) {
-        return get(id).liquid;
+        return id > 0 && id < LIQUID.length && LIQUID[id];
+    }
+
+    public static boolean isCross(int id) {
+        return id > 0 && id < CROSS.length && CROSS[id];
     }
 
     public static float hardness(int id) {
-        return get(id).hardness;
+        if (id <= 0 || id >= HARDNESS.length) return -1f;
+        return HARDNESS[id];
     }
 
     public static final int[] HOTBAR = {
-            1, 2, 3, 4, 8, 6, 29, 7, 5, 20, 13, 10, 28, 24, 25, 31
+            1, 3, 4, 39, 40, 8, 6, 29, 7, 5, 20, 13, 10, 53, 28, 55
     };
 }

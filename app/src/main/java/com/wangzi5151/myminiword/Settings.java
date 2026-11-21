@@ -11,6 +11,10 @@ public class Settings {
     public volatile int timePreset = -1;         // -1 = none, else dayTime 0..1
     public volatile boolean resetRequested = false;
 
+    // Weather: either automatic (biome/season weighted) or pinned by the player.
+    public volatile boolean autoWeather = true;
+    public volatile int weather = 0;             // 0 clear, 1 rain, 2 snow, 3 storm
+
     public static final int MIN_RD = 56;
     public static final int MAX_RD = 176;
 }

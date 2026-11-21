@@ -42,40 +42,76 @@ public class ChunkMesh {
     }
 
     private static boolean opaqueId(int id) {
-        return id != 0 && BlockType.get(id).opaque;
+        return id > 0 && id < BlockType.OPAQUE.length && BlockType.OPAQUE[id];
     }
 
+    // ------------------------------------------------------------------
+    // Reusable per-thread scratch state: meshing runs on 2-4 worker threads and
+    // allocating a 20k pad plus several mesh buffers per chunk was the single
+    // biggest source of GC churn.
+    // ------------------------------------------------------------------
+
+    private static final class Ctx {
+        final byte[] pad = new byte[PAD_SIZE];
+        final int[] mask = new int[SX * SY];
+        final int[] p = new int[3];
+        final Chunk[] neighbors = new Chunk[9];
+        final MeshBuffer opaque = new MeshBuffer(8192, 6144);
+        final MeshBuffer transparent = new MeshBuffer(2048, 1536);
+        final MeshBuffer liquid = new MeshBuffer(1536, 1024);
+    }
+
+    private static final ThreadLocal<Ctx> CTX = new ThreadLocal<Ctx>() {
+        @Override
+        protected Ctx initialValue() {
+            return new Ctx();
+        }
+    };
+
     public static void build(World world, Chunk chunk) {
-        byte[] pad = new byte[PAD_SIZE];
-        int baseX = chunk.cx * SX;
-        int baseZ = chunk.cz * SZ;
+        Ctx ctx = CTX.get();
+        fillPad(world, chunk, ctx);
+        ctx.opaque.reset();
+        ctx.transparent.reset();
+        ctx.liquid.reset();
+
+        greedyOpaque(ctx.pad, ctx.opaque, ctx.mask, ctx.p);
+        perFaceNonOpaque(ctx.pad, ctx.transparent, ctx.liquid);
+        emitRails(ctx.pad, ctx.transparent);
+
+        chunk.opaqueMesh.set(ctx.opaque.finish());
+        chunk.transparentMesh.set(ctx.transparent.finish());
+        chunk.liquidMesh.set(ctx.liquid.finish());
+    }
+
+    /**
+     * Builds the 18x66x18 padded neighbourhood from direct chunk array reads.
+     * Previously every one of the ~19k lookups went through a concurrent hash map.
+     */
+    private static void fillPad(World world, Chunk chunk, Ctx ctx) {
+        byte[] pad = ctx.pad;
+        Arrays.fill(pad, (byte) 0);
+        world.getNeighborChunks(chunk.cx, chunk.cz, ctx.neighbors);
         for (int y = -1; y <= SY; y++) {
+            if (y < 0 || y >= SY) continue;
             for (int z = -1; z <= SZ; z++) {
+                int ncz = z < 0 ? 0 : (z >= SZ ? 2 : 1);
+                int bz = z & 15;
                 for (int x = -1; x <= SX; x++) {
-                    pad[pidx(x, y, z)] = (byte) world.getBlock(baseX + x, y, baseZ + z);
+                    int ncx = x < 0 ? 0 : (x >= SX ? 2 : 1);
+                    Chunk c = ctx.neighbors[ncz * 3 + ncx];
+                    if (c == null) continue;
+                    int bx = x & 15;
+                    pad[pidx(x, y, z)] = c.blocks[(y * SZ + bz) * SX + bx];
                 }
             }
         }
-
-        MeshBuffer ov = new MeshBuffer(8192, 6144);
-        MeshBuffer tv = new MeshBuffer(2048, 1536);
-        MeshBuffer lv = new MeshBuffer(2048, 1536);
-
-        greedyOpaque(pad, ov);
-        perFaceNonOpaque(pad, tv, lv);
-        emitRails(pad, tv);
-
-        chunk.opaqueMesh.set(ov.finish());
-        chunk.transparentMesh.set(tv.finish());
-        chunk.liquidMesh.set(lv.finish());
     }
 
     // ---- Greedy meshing for opaque blocks ----
-    private static void greedyOpaque(byte[] pad, MeshBuffer out) {
+    private static void greedyOpaque(byte[] pad, MeshBuffer out, int[] mask, int[] xyz) {
         int[] dims = {SX, SY, SZ};
-        int[] x = new int[3];
         int[] q = new int[3];
-        int[] pos = new int[3];
 
         for (int d = 0; d < 3; d++) {
             int u, v;
@@ -90,26 +126,25 @@ public class ChunkMesh {
             q[d] = 1;
             int mw = dims[u];
             int mh = dims[v];
-            int[] mask = new int[mw * mh];
 
-            for (x[d] = -1; x[d] < dims[d]; ) {
+            for (xyz[d] = -1; xyz[d] < dims[d]; ) {
                 int n = 0;
-                for (x[v] = 0; x[v] < mh; x[v]++) {
-                    for (x[u] = 0; x[u] < mw; x[u]++) {
-                        int a = padGet(pad, x[0] + q[0], x[1] + q[1], x[2] + q[2]);
-                        int b = padGet(pad, x[0], x[1], x[2]);
+                for (xyz[v] = 0; xyz[v] < mh; xyz[v]++) {
+                    for (xyz[u] = 0; xyz[u] < mw; xyz[u]++) {
+                        int a = padGet(pad, xyz[0] + q[0], xyz[1] + q[1], xyz[2] + q[2]);
+                        int b = padGet(pad, xyz[0], xyz[1], xyz[2]);
                         boolean af = opaqueId(a);
                         boolean bf = opaqueId(b);
                         int m = 0;
                         if (af && !bf) {
-                            if (x[d] + 1 >= 0 && x[d] + 1 < dims[d]) m = a;      // +d, owned by us
+                            if (xyz[d] + 1 >= 0 && xyz[d] + 1 < dims[d]) m = a;
                         } else if (bf && !af) {
-                            if (x[d] >= 0 && x[d] < dims[d]) m = -b;             // -d, owned by us
+                            if (xyz[d] >= 0 && xyz[d] < dims[d]) m = -b;
                         }
                         mask[n++] = m;
                     }
                 }
-                x[d]++;
+                xyz[d]++;
 
                 n = 0;
                 for (int j = 0; j < mh; j++) {
@@ -133,8 +168,8 @@ public class ChunkMesh {
                             if (done) break;
                             h++;
                         }
-                        pos[0] = pos[1] = pos[2] = 0;
-                        pos[d] = x[d];
+                        int[] pos = new int[3];
+                        pos[d] = xyz[d];
                         emitGreedy(out, pad, d, u, v, pos, i, j, w, h, c);
                         for (int l = 0; l < h; l++)
                             for (int k = 0; k < w; k++)
@@ -161,33 +196,32 @@ public class ChunkMesh {
         int face = faceOf(d, sign);
         int tile = BlockType.get(block).getTile(face);
         float baseShade = FACE_SHADE[face];
+        if (BlockType.GLOW[block]) baseShade *= 1.75f;
         boolean vFlip = (d != 1);
 
         int[] cu = {i, i + w, i + w, i};
         int[] cv = {j, j, j + h, j + h};
         int[] su = {-1, 1, 1, -1};
         int[] sv = {-1, -1, 1, 1};
+        int[] a = new int[3];
 
         out.ensureRoom(4, 6);
         int base = out.vertexBase();
+        int iu = i + w - 1;
+        int jv = j + h - 1;
         for (int k = 0; k < 4; k++) {
             pos[u] = cu[k];
             pos[v] = cv[k];
 
-            int iu = su[k] < 0 ? i : i + w - 1;
-            int jv = sv[k] < 0 ? j : j + h - 1;
+            int iu2 = su[k] < 0 ? i : iu;
+            int jv2 = sv[k] < 0 ? j : jv;
             int bd = sign > 0 ? pos[d] : pos[d] - 1;
 
-            int s1d = bd + sign, s1u = iu + su[k], s1v = jv;
-            int s2d = bd + sign, s2u = iu, s2v = jv + sv[k];
-            int cRd = bd + sign, cRu = iu + su[k], cRv = jv + sv[k];
-
-            int[] a = {0, 0, 0};
-            a[d] = s1d; a[u] = s1u; a[v] = s1v;
+            a[d] = bd + sign; a[u] = iu2 + su[k]; a[v] = jv2;
             int occ1 = opaqueId(padGet(pad, a[0], a[1], a[2])) ? 1 : 0;
-            a[d] = s2d; a[u] = s2u; a[v] = s2v;
+            a[d] = bd + sign; a[u] = iu2; a[v] = jv2 + sv[k];
             int occ2 = opaqueId(padGet(pad, a[0], a[1], a[2])) ? 1 : 0;
-            a[d] = cRd; a[u] = cRu; a[v] = cRv;
+            a[d] = bd + sign; a[u] = iu2 + su[k]; a[v] = jv2 + sv[k];
             int occC = opaqueId(padGet(pad, a[0], a[1], a[2])) ? 1 : 0;
 
             int ao = (occ1 == 1 && occ2 == 1) ? 0 : 3 - (occ1 + occ2 + occC);
@@ -200,7 +234,7 @@ public class ChunkMesh {
         out.addTriangle(base, base + 2, base + 3);
     }
 
-    // ---- Per-face meshing for glass / water / other non-opaque blocks ----
+    // ---- Per-face meshing for glass / water / plants ----
     private static void perFaceNonOpaque(byte[] pad, MeshBuffer tv, MeshBuffer lv) {
         for (int y = 0; y < SY; y++) {
             for (int z = 0; z < SZ; z++) {
@@ -210,13 +244,22 @@ public class ChunkMesh {
                     if (id == BlockType.RAIL_X.id || id == BlockType.RAIL_Z.id) continue;
                     BlockType bt = BlockType.get(id);
                     if (bt.opaque) continue;
+                    if (bt.cross) {
+                        emitCross(tv, x, y, z, bt.getTile(BlockType.FACE_PX), x, z);
+                        continue;
+                    }
                     MeshBuffer out = bt.liquid ? lv : tv;
+                    float topScale = 1f;
+                    if (bt.liquid) {
+                        int above = padGet(pad, x, y + 1, z);
+                        if (above != id) topScale = 0.875f;
+                    }
                     for (int face = 0; face < 6; face++) {
                         int nid = padGet(pad, x + FACE_NORMALS[face][0],
                                 y + FACE_NORMALS[face][1],
                                 z + FACE_NORMALS[face][2]);
                         if (!shouldRenderFace(id, nid)) continue;
-                        addFace(out, x, y, z, face, bt.getTile(face));
+                        addFace(out, x, y, z, face, bt.getTile(face), topScale, BlockType.GLOW[id]);
                     }
                 }
             }
@@ -246,6 +289,26 @@ public class ChunkMesh {
         }
     }
 
+    /** Two crossed quads, the classic voxel plant billboard. */
+    private static void emitCross(MeshBuffer out, int x, int y, int z, int tile, int wx, int wz) {
+        int h = 12 + (Math.floorMod(wx * 73856093 ^ wz * 19349663, 5));
+        float top = Math.min(1f, h / 16f);
+        out.ensureRoom(8, 12);
+        int base = out.vertexBase();
+        addVert(out, x + 0.15f, y, z + 0.15f, tile, 0, 1, 1f);
+        addVert(out, x + 0.85f, y, z + 0.85f, tile, 1, 1, 1f);
+        addVert(out, x + 0.85f, y + top, z + 0.85f, tile, 1, 0, 1f);
+        addVert(out, x + 0.15f, y + top, z + 0.15f, tile, 0, 0, 1f);
+        addVert(out, x + 0.85f, y, z + 0.15f, tile, 0, 1, 1f);
+        addVert(out, x + 0.15f, y, z + 0.85f, tile, 1, 1, 1f);
+        addVert(out, x + 0.15f, y + top, z + 0.85f, tile, 1, 0, 1f);
+        addVert(out, x + 0.85f, y + top, z + 0.15f, tile, 0, 0, 1f);
+        out.addTriangle(base, base + 1, base + 2);
+        out.addTriangle(base, base + 2, base + 3);
+        out.addTriangle(base + 4, base + 5, base + 6);
+        out.addTriangle(base + 4, base + 6, base + 7);
+    }
+
     private static void addVert(MeshBuffer out, float x, float y, float z, int tile, float u, float v, float shade) {
         out.addVertex(x, y, z, tile, u, v, shade);
     }
@@ -258,14 +321,16 @@ public class ChunkMesh {
         return true;
     }
 
-    private static void addFace(MeshBuffer out, int x, int y, int z, int face, int tile) {
+    private static void addFace(MeshBuffer out, int x, int y, int z, int face, int tile,
+                                float topScale, boolean glow) {
         float[] verts = FACE_VERTS[face];
-        float shade = FACE_SHADE[face];
+        float shade = FACE_SHADE[face] * (glow ? 1.75f : 1f);
         out.ensureRoom(4, 6);
         int base = out.vertexBase();
         for (int c = 0; c < 4; c++) {
             int o = c * 5;
-            out.addVertex(x + verts[o], y + verts[o + 1], z + verts[o + 2],
+            float vy = verts[o + 1] > 0f ? topScale : 0f;
+            out.addVertex(x + verts[o], y + vy, z + verts[o + 2],
                     tile, verts[o + 3], verts[o + 4], shade);
         }
         out.addTriangle(base, base + 1, base + 2);
@@ -327,6 +392,10 @@ public class ChunkMesh {
     public static MeshData buildBlockMesh(int blockId) {
         BlockType bt = BlockType.get(blockId);
         MeshBuffer out = new MeshBuffer(6 * 4 * FLOATS_PER_VERTEX, 6 * 6);
+        if (bt.cross) {
+            emitCross(out, 0, 0, 0, bt.getTile(BlockType.FACE_PX), 3, 5);
+            return out.finish();
+        }
         for (int face = 0; face < 6; face++) {
             float[] verts = FACE_VERTS[face];
             float shade = FACE_SHADE[face];
@@ -388,9 +457,17 @@ public class ChunkMesh {
             indices.clear();
         }
 
+        void reset() {
+            verts.clear();
+            indices.clear();
+            parts.clear();
+        }
+
         MeshData finish() {
             flush();
-            return new MeshData(parts.toArray(new MeshData.Part[0]));
+            MeshData md = new MeshData(parts.toArray(new MeshData.Part[0]));
+            parts.clear();
+            return md;
         }
     }
 

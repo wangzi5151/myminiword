@@ -58,6 +58,12 @@ public class ControlsOverlay extends View {
     public volatile boolean loading = true;
     public volatile float breakProgress = 0f;
     public volatile boolean showBreak = false;
+    public volatile float playerY = 0f;
+    public volatile String statBiome = "";
+    public volatile String statWeather = "";
+    public volatile String statClock = "";
+    public volatile String statCity = "";
+    public volatile boolean underwater = false;
 
     private static final int[] BLOCK_COLORS = {
             0x00000000, 0xFF5E9D34, 0xFF866043, 0xFF808082, 0xFF747476, 0xFFDED2A5,
@@ -66,7 +72,11 @@ public class ControlsOverlay extends View {
             0xFFD8B84A, 0xFF5CE0E2, 0xFFDED2A6, 0xFF6E8260, 0xFFA0D2F2, 0xFFA2AAB4,
             0xFFDEDEE2, 0xFFF8D85C, 0xFF7AEAE8, 0xFF8A6A3A, 0xFFEEC65C, 0xFFDEDCD2,
             0xFFCEBE96, 0xFF8A8A8E, 0xFF7A6A4A, 0xFF7A6A4A,
-            0xFFE6E8EA, 0xFFA83630, 0xFFE2C454, 0xFF466EAA, 0xFF3A3228
+            0xFFE6E8EA, 0xFFA83630, 0xFFE2C454, 0xFF466EAA, 0xFF3A3228,
+            0xFF3A3A3F, 0xFFBEBEBA, 0xFFB04E36, 0xFF25303E, 0xFF9EA0A8,
+            0xFF2C5C28, 0xFFCE2C3A, 0xFFF0CA3A, 0xFF569632, 0xFF3E7A3E,
+            0xFF9E7674, 0xFF484850, 0xFFBA6A4A, 0xFF4E5664, 0xFFFFE3A0,
+            0xFF5C4C3A, 0xFF7A8A6A, 0xFF3A7A36, 0xFF285838, 0xFF4AA43C
     };
     private static final int HOTBAR_COUNT = 16;
 
@@ -93,6 +103,8 @@ public class ControlsOverlay extends View {
     private final RectF nightRect = new RectF();
     private final RectF resetRect = new RectF();
     private final RectF closeRect = new RectF();
+    private final RectF weatherAutoRect = new RectF();
+    private final RectF weatherTypeRect = new RectF();
 
     private final RectF invPanel = new RectF();
     private final RectF invCloseRect = new RectF();
@@ -103,8 +115,8 @@ public class ControlsOverlay extends View {
     private static float mapMinX, mapMaxX, mapMinZ, mapMaxZ;
     private float invPad;
     private float invTitleY;
-    private int invCols = 7;
-    private int invRows = 6;
+    private int invCols = 8;
+    private int invRows = 8;
     private float invSlot;
     private float invGridX;
     private float invGridY;
@@ -206,7 +218,7 @@ public class ControlsOverlay extends View {
         panelRect.set(pl, pt, pl + pw, pt + ph);
 
         float pad = dp(16);
-        float rowH = ph / 11.5f;
+        float rowH = ph / 12.8f;
         float btn = rowH * 0.62f;
         float right = panelRect.right - pad;
         float valW = rowH * 1.2f;
@@ -218,8 +230,10 @@ public class ControlsOverlay extends View {
         float y5 = panelRect.top + rowH * 5.05f;
         float y6 = panelRect.top + rowH * 6.05f;
         float y7 = panelRect.top + rowH * 7.05f;
-        float y8 = panelRect.top + rowH * 8.20f;
-        float y9 = panelRect.top + rowH * 9.45f;
+        float y8 = panelRect.top + rowH * 8.15f;
+        float y9 = panelRect.top + rowH * 9.25f;
+        float y10 = panelRect.top + rowH * 10.35f;
+        float y11 = panelRect.top + rowH * 11.45f;
 
         rdPlus.set(right - btn, y1 - btn / 2f, right, y1 + btn / 2f);
         rdMinus.set(rdPlus.left - valW - btn, y1 - btn / 2f, rdPlus.left - valW, y1 + btn / 2f);
@@ -239,7 +253,9 @@ public class ControlsOverlay extends View {
         duskRect.set(dayRect.right + dp(8), y8 - btn / 2f, dayRect.right + dp(8) + bw, y8 + btn / 2f);
         nightRect.set(duskRect.right + dp(8), y8 - btn / 2f, duskRect.right + dp(8) + bw, y8 + btn / 2f);
 
-        resetRect.set(innerLeft, y9 - btn / 2f, right, y9 + btn / 2f);
+        weatherAutoRect.set(right - toggleW, y9 - btn / 2f, right, y9 + btn / 2f);
+        weatherTypeRect.set(innerLeft, y10 - btn / 2f, right, y10 + btn / 2f);
+        resetRect.set(innerLeft, y11 - btn / 2f, right, y11 + btn / 2f);
         float cb = rowH * 0.75f;
         closeRect.set(panelRect.left + (pw - cb * 2f) / 2f, panelRect.bottom - pad - cb,
                 panelRect.left + (pw + cb * 2f) / 2f, panelRect.bottom - pad);
@@ -268,6 +284,9 @@ public class ControlsOverlay extends View {
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
+        text.setTextSize(dp(14));
+        text.setTextAlign(Paint.Align.CENTER);
+        stroke.setStrokeWidth(dp(2));
 
         // joystick
         fill.setColor(0x22FFFFFF);
@@ -323,6 +342,10 @@ public class ControlsOverlay extends View {
         fill.setColor(0xCCFFFFFF);
         canvas.drawCircle(cx, cy, dp(1.6f), fill);
 
+        if (underwater) {
+            fill.setColor(0x332A6A9A);
+            canvas.drawRect(0, 0, w, h, fill);
+        }
         if (settings == null || settings.showStats) drawStats(canvas);
         drawBreakProgress(canvas);
         drawLoadingOrError(canvas);
@@ -335,6 +358,7 @@ public class ControlsOverlay extends View {
     }
 
     private void drawMinimap(Canvas canvas) {
+        updateMapBounds();
         float s = mapSize;
         float x0 = dp(8), y0 = dp(8);
         tmpRect.set(x0, y0, x0 + s, y0 + s);
@@ -358,11 +382,17 @@ public class ControlsOverlay extends View {
         }
 
         int[] themeCol = {0xFFE04A3A, 0xFF9A9A9E, 0xFFE8E0C8, 0xFFE2C454, 0xFF6EA8FF, 0xFF5CB85C};
+        stroke.setStrokeWidth(dp(1f));
         for (int i = 0; i < CityGenerator.CITIES.length; i++) {
             int[] c = CityGenerator.CITIES[i];
+            float mx = ox + (c[0] - mapMinX) * scale;
+            float mz = oy + (c[1] - mapMinZ) * scale;
             fill.setColor(themeCol[c[2]]);
-            canvas.drawCircle(ox + (c[0] - mapMinX) * scale, oy + (c[1] - mapMinZ) * scale, dp(4), fill);
+            canvas.drawCircle(mx, mz, dp(4), fill);
+            stroke.setColor(0x55FFFFFF);
+            canvas.drawCircle(mx, mz, CityGenerator.RADIUS * scale, stroke);
         }
+        stroke.setStrokeWidth(dp(2));
 
         float pxn = ox + (playerX - mapMinX) * scale;
         float pzn = oy + (playerZ - mapMinZ) * scale;
@@ -374,6 +404,20 @@ public class ControlsOverlay extends View {
         stroke.setStrokeWidth(dp(2));
         canvas.drawLine(pxn, pzn, pxn + fx * dp(9), pzn + fz * dp(9), stroke);
         stroke.setStrokeWidth(dp(2));
+    }
+
+    private void updateMapBounds() {
+        float mx0 = Float.MAX_VALUE, mx1 = -Float.MAX_VALUE, mz0 = Float.MAX_VALUE, mz1 = -Float.MAX_VALUE;
+        for (int[] c : CityGenerator.CITIES) {
+            mx0 = Math.min(mx0, c[0]);
+            mx1 = Math.max(mx1, c[0]);
+            mz0 = Math.min(mz0, c[1]);
+            mz1 = Math.max(mz1, c[1]);
+        }
+        mapMinX = mx0 - 240;
+        mapMaxX = mx1 + 240;
+        mapMinZ = mz0 - 240;
+        mapMaxZ = mz1 + 240;
     }
 
     private void drawStopDialog(Canvas canvas) {
@@ -403,13 +447,13 @@ public class ControlsOverlay extends View {
         text.setColor(0xFFFFFFFF);
         canvas.drawText("背包", invGridX + invSlot * invCols / 2f, invTitleY, text);
         canvas.drawText("合成", (craftX0 + craftX1) / 2f, invTitleY, text);
-        text.setTextSize(dp(13));
+        text.setTextSize(dp(11));
 
-        // inventory grid: all blocks 1..38
+        // inventory grid: every registered block
         int id = 1;
         for (int row = 0; row < invRows; row++) {
             for (int col = 0; col < invCols; col++) {
-                if (id >= 39) break;
+                if (id > BlockType.MAX_ID) break;
                 float sx = invGridX + col * invSlot;
                 float sy = invGridY + row * invSlot;
                 tmpRect.set(sx + dp(2), sy + dp(2), sx + invSlot - dp(2), sy + invSlot - dp(2));
@@ -425,6 +469,7 @@ public class ControlsOverlay extends View {
             }
         }
         stroke.setStrokeWidth(dp(2));
+        text.setTextSize(dp(12));
 
         // crafting list
         for (int i = 0; i < Inventory.RECIPES.length; i++) {
@@ -449,7 +494,10 @@ public class ControlsOverlay extends View {
             "空气", "草方块", "泥土", "石头", "圆石", "沙子", "原木", "树叶", "木板", "水",
             "玻璃", "基岩", "雪", "砖块", "黑曜石", "砾石", "煤矿", "铁矿", "金矿", "钻石矿",
             "沙岩", "苔石", "冰", "黏土", "铁块", "金块", "钻石块", "书架", "萤石", "白桦原木",
-            "白桦木板", "石砖", "铁轨", "铁轨", "白灰泥", "红灰泥", "黄灰泥", "蓝灰泥", "深灰泥"
+            "白桦木板", "石砖", "铁轨", "铁轨", "白灰泥", "红灰泥", "黄灰泥", "蓝灰泥", "深灰泥",
+            "沥青", "混凝土", "瓦片", "深色玻璃", "钢材", "树篱", "红花", "黄花", "高草",
+            "仙人掌", "花岗岩", "玄武岩", "陶土", "石板瓦", "灯具", "泥浆", "苔砖",
+            "蕨类", "云杉叶", "丛林叶"
     };
 
     private static String name(int id) {
@@ -503,6 +551,21 @@ public class ControlsOverlay extends View {
         drawButton(canvas, dayRect, "白天", 0xFFB79A2E, settings.timePreset == 1);
         drawButton(canvas, duskRect, "黄昏", 0xFFB4762E, settings.timePreset == 2);
         drawButton(canvas, nightRect, "夜晚", 0xFF2E3A6A, settings.timePreset == 3);
+
+        labelLeft(canvas, "天气", left, weatherAutoRect.centerY());
+        drawButton(canvas, weatherAutoRect, settings.autoWeather ? "自动" : "手动",
+                settings.autoWeather ? 0xFF3FA34D : 0xFF666666, settings.autoWeather);
+
+        String wname;
+        switch (settings.weather) {
+            case 1: wname = "小雨"; break;
+            case 2: wname = "降雪"; break;
+            case 3: wname = "雷雨"; break;
+            default: wname = "晴朗"; break;
+        }
+        labelLeft(canvas, "当前", left, weatherTypeRect.centerY());
+        drawButton(canvas, weatherTypeRect, wname + (settings.autoWeather ? " (自动切换)" : " (点击切换)"),
+                0xFF3A5C8A, false);
 
         drawButton(canvas, resetRect, "重置世界", 0xFFA03A3A, false);
         drawButton(canvas, closeRect, "关闭", 0xFF44607A, false);
@@ -582,19 +645,27 @@ public class ControlsOverlay extends View {
     private void drawStats(Canvas canvas) {
         float pad = dp(8);
         float y0 = dp(8) + mapSize + dp(6);
-        String l1 = "FPS " + statFps;
-        String l2 = "区块 " + statChunks;
-        String l3 = "三角面 " + statTris;
+        String l1 = "FPS " + statFps + "   区块 " + statChunks;
+        String l2 = "三角面 " + statTris;
+        String l3 = String.format(java.util.Locale.US, "坐标 %d, %d  Y %.1f",
+                (int) Math.floor(playerX), (int) Math.floor(playerZ), playerY);
+        String l4 = "群系 " + statBiome;
+        String l5 = (statClock.isEmpty() ? "" : statClock + "  ") + statWeather
+                + (underwater ? "  · 水下" : "");
+        String l6 = statCity;
         text.setTextAlign(Paint.Align.LEFT);
-        float tw = Math.max(text.measureText(l1), Math.max(text.measureText(l2), text.measureText(l3)));
-        tmpRect.set(dp(8), y0, dp(8) + tw + pad * 2, y0 + dp(58));
+        float tw = 0f;
+        String[] lines = {l1, l2, l3, l4, l5, l6};
+        for (String s : lines) tw = Math.max(tw, text.measureText(s));
+        tmpRect.set(dp(8), y0, dp(8) + tw + pad * 2, y0 + dp(16) * lines.length + pad);
         fill.setColor(0x55000000);
         canvas.drawRoundRect(tmpRect, dp(8), dp(8), fill);
         text.setColor(0xFFE6F2FF);
         float ty = y0 + pad + dp(11);
-        canvas.drawText(l1, dp(8) + pad, ty, text);
-        canvas.drawText(l2, dp(8) + pad, ty + dp(16), text);
-        canvas.drawText(l3, dp(8) + pad, ty + dp(32), text);
+        for (String s : lines) {
+            canvas.drawText(s, dp(8) + pad, ty, text);
+            ty += dp(16);
+        }
         text.setTextAlign(Paint.Align.CENTER);
     }
 
@@ -783,6 +854,11 @@ public class ControlsOverlay extends View {
         } else if (nightRect.contains(x, y)) {
             settings.timeFlowing = false;
             settings.timePreset = 3;
+        } else if (weatherAutoRect.contains(x, y)) {
+            settings.autoWeather = !settings.autoWeather;
+        } else if (weatherTypeRect.contains(x, y)) {
+            settings.autoWeather = false;
+            settings.weather = (settings.weather + 1) % 4;
         } else if (resetRect.contains(x, y)) {
             settings.resetRequested = true;
             settingsOpen = false;
@@ -797,7 +873,7 @@ public class ControlsOverlay extends View {
         for (int row = 0; row < invRows; row++) {
             for (int col = 0; col < invCols; col++) {
                 int id = 1 + row * invCols + col;
-                if (id >= 36) break;
+                if (id > BlockType.MAX_ID) break;
                 float sx = invGridX + col * invSlot;
                 float sy = invGridY + row * invSlot;
                 if (x >= sx && x <= sx + invSlot && y >= sy && y <= sy + invSlot) {

@@ -26,7 +26,8 @@ public class World {
     public static final int TRACK_Y = 46;
     private static final int MIN_RADIUS = 4;
     private static final int MAX_RADIUS = 12;
-    private static final int WORKERS = 3;
+    private static final int WORKERS = Math.max(2, Math.min(4,
+            Runtime.getRuntime().availableProcessors() - 1));
     private static final int UPLOAD_BUDGET = 3;
 
     private final TerrainGenerator generator;
@@ -263,6 +264,34 @@ public class World {
             snapshotDirty = false;
         }
         return snapshot;
+    }
+
+    /** Copies the 3x3 chunk neighbourhood (missing entries are null) for meshing. */
+    public void getNeighborChunks(int cx, int cz, Chunk[] out) {
+        int i = 0;
+        for (int dz = -1; dz <= 1; dz++) {
+            for (int dx = -1; dx <= 1; dx++) {
+                Chunk c = chunks.get(key(cx + dx, cz + dz));
+                out[i++] = (c != null && c.generated) ? c : null;
+            }
+        }
+    }
+
+    public TerrainGenerator getGenerator() {
+        return generator;
+    }
+
+    public int getBiomeId(int x, int z) {
+        return generator.biomeIdAt(x, z);
+    }
+
+    public String getBiomeName(int x, int z) {
+        return generator.biomeAt(x, z).name;
+    }
+
+    /** Natural terrain height (ignores edits/buildings). */
+    public int getTerrainHeight(int x, int z) {
+        return generator.surfaceHeight(x, z);
     }
 
     public int getBlock(int x, int y, int z) {
@@ -573,17 +602,14 @@ public class World {
     }
 
     public int cityGroundHeight(int index) {
-        int[] c = CityGenerator.CITIES[index];
-        int t = generator.surfaceHeight(c[0], c[1]);
-        if (t < TerrainGenerator.SEA_LEVEL + 2) t = TerrainGenerator.SEA_LEVEL + 2;
-        if (t > 38) t = 38;
-        return t;
+        return cityGenerator.groundHeight(index);
     }
 
+    /** Topmost solid block (water and plants are skipped). */
     public int getSurfaceHeight(int x, int z) {
         for (int y = Chunk.SIZE_Y - 1; y >= 0; y--) {
             int id = getBlock(x, y, z);
-            if (id != 0 && id != BlockType.WATER.id) return y;
+            if (id != 0 && BlockType.isSolid(id)) return y;
         }
         return 1;
     }
