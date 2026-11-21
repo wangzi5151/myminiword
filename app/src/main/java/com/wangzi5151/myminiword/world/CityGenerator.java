@@ -169,6 +169,9 @@ public class CityGenerator {
 
         shapeTerrain(chunk, baseX, baseZ, cityX, cityZ, target, theme, wall, roof, accent, ground);
 
+        // Street furniture first so plazas, parks and landmarks can replace it.
+        furniture(chunk, baseX, baseZ, cityX, cityZ, target, theme, accent);
+
         // --- reserved plots -------------------------------------------------
         buildStation(chunk, baseX, baseZ, cityX, cityZ, target);
         if (overlaps(baseX, baseZ, cityX - 22, cityZ + 18, cityX + 22, cityZ + 42)) {
@@ -185,8 +188,7 @@ public class CityGenerator {
                     wall, wall2, roof, accent);
         }
 
-        // --- street furniture along every avenue ---------------------------
-        furniture(chunk, baseX, baseZ, cityX, cityZ, target, theme, accent);
+        parkedCars(chunk, baseX, baseZ, cityX, cityZ, target);
 
         // --- rooftop skyline / housing in the remaining plots --------------
         int cellR = (RADIUS / PITCH) + 2;
@@ -357,9 +359,51 @@ public class CityGenerator {
         }
     }
 
+    /** Parked cars along the kerb lanes: small, cheap, and they sell the scale. */
+    private void parkedCars(Chunk chunk, int baseX, int baseZ, int cityX, int cityZ, int target) {
+        int[] bodyColors = {BlockType.RED_PLASTER.id, BlockType.BLUE_PLASTER.id,
+                BlockType.YELLOW_PLASTER.id, BlockType.WHITE_PLASTER.id, BlockType.DARK_PLASTER.id};
+        for (int axis = 0; axis < 2; axis++) {
+            for (int k = -3; k <= 3; k++) {
+                int line = (axis == 0 ? cityZ : cityX) + k * PITCH;
+                for (int along = -RADIUS + 8; along < RADIUS - 8; along += 17) {
+                    Random r = new Random(line * 7919L + along * 104729L + axis * 31L);
+                    if (r.nextInt(3) != 0) continue;
+                    int ax = axis == 0 ? cityX + along : line;
+                    int az = axis == 0 ? line : cityZ + along;
+                    int lane = r.nextBoolean() ? 1 : -1;
+                    if (axis == 0) az += lane * 1;
+                    else ax += lane * 1;
+                    if (Math.hypot(ax - cityX, az - cityZ) > RADIUS - 5) continue;
+                    if (!overlaps(baseX, baseZ, Math.min(ax, ax + (axis == 0 ? 3 : 0)) - 1,
+                            Math.min(az, az + (axis == 0 ? 0 : 3)) - 1,
+                            Math.max(ax, ax + (axis == 0 ? 3 : 0)) + 1,
+                            Math.max(az, az + (axis == 0 ? 0 : 3)) + 1)) continue;
+                    if (chunk.get(ax - baseX, target, az - baseZ) != BlockType.ASPHALT.id) continue;
+                    int body = bodyColors[r.nextInt(bodyColors.length)];
+                    int len = 3;
+                    for (int i = 0; i < len; i++) {
+                        for (int w = 0; w < 2; w++) {
+                            int cx = axis == 0 ? ax + i : ax + w * lane;
+                            int cz = axis == 0 ? az + w * lane : az + i;
+                            put(chunk, baseX, baseZ, cx, target + 1, cz, body);
+                            boolean cabin = (i == 1);
+                            put(chunk, baseX, baseZ, cx, target + 2, cz,
+                                    cabin ? BlockType.DARK_GLASS.id : body);
+                        }
+                    }
+                    // Bumpers.
+                    int bx0 = axis == 0 ? ax - 1 : ax;
+                    int bz0 = axis == 0 ? az : az - 1;
+                    put(chunk, baseX, baseZ, bx0, target + 1, bz0, BlockType.STEEL.id);
+                }
+            }
+        }
+    }
+
     private void buildPlaza(Chunk chunk, int baseX, int baseZ, int cx, int cz, int target,
                             int accent, int theme) {
-        int radius = 11;
+        int radius = 10;
         for (int dx = -radius; dx <= radius; dx++) {
             for (int dz = -radius; dz <= radius; dz++) {
                 int d2 = dx * dx + dz * dz;
@@ -638,11 +682,14 @@ public class CityGenerator {
                 boolean perim = (x == bx || x == bx + w - 1 || z == bz || z == bz + d - 1);
                 boolean corner = (x == bx || x == bx + w - 1) && (z == bz || z == bz + d - 1);
                 for (int y = y0; y < y0 + h; y++) {
+                    int rel = y - y0;
                     if (!perim) {
-                        put(chunk, baseX, baseZ, x, y, z, 0);
+                        boolean lift = Math.abs(x - (bx + w / 2)) <= 0 && Math.abs(z - (bz + d / 2)) <= 0;
+                        if (rel % 4 == 3) put(chunk, baseX, baseZ, x, y, z, BlockType.CONCRETE.id);
+                        else if (lift) put(chunk, baseX, baseZ, x, y, z, BlockType.STEEL.id);
+                        else put(chunk, baseX, baseZ, x, y, z, 0);
                         continue;
                     }
-                    int rel = y - y0;
                     boolean slab = (rel % 4 == 3);
                     boolean mullion = ((x + z) % 3 == 0);
                     boolean store = ground && rel < 3;
@@ -719,11 +766,14 @@ public class CityGenerator {
             for (int z = bz; z < bz + d; z++) {
                 boolean perim = (x == bx || x == bx + w - 1 || z == bz || z == bz + d - 1);
                 for (int y = y0; y < y0 + h; y++) {
+                    int rel = y - y0;
                     if (!perim) {
-                        put(chunk, baseX, baseZ, x, y, z, 0);
+                        boolean lift = Math.abs(x - (bx + w / 2)) <= 0 && Math.abs(z - (bz + d / 2)) <= 0;
+                        if (rel % 4 == 3) put(chunk, baseX, baseZ, x, y, z, BlockType.CONCRETE.id);
+                        else if (lift) put(chunk, baseX, baseZ, x, y, z, BlockType.STEEL.id);
+                        else put(chunk, baseX, baseZ, x, y, z, 0);
                         continue;
                     }
-                    int rel = y - y0;
                     boolean frame = (x == bx || x == bx + w - 1) && (z == bz || z == bz + d - 1);
                     int id;
                     if (frame) id = wall2;
@@ -769,11 +819,14 @@ public class CityGenerator {
                 boolean perim = (x == bx || x == bx + w - 1 || z == bz || z == bz + d - 1);
                 boolean corner = (x == bx || x == bx + w - 1) && (z == bz || z == bz + d - 1);
                 for (int y = y0; y < y0 + h; y++) {
+                    int rel = y - y0;
                     if (!perim) {
-                        put(chunk, baseX, baseZ, x, y, z, 0);
+                        boolean lift = Math.abs(x - (bx + w / 2)) <= 0 && Math.abs(z - (bz + d / 2)) <= 0;
+                        if (rel % 4 == 3) put(chunk, baseX, baseZ, x, y, z, BlockType.CONCRETE.id);
+                        else if (lift) put(chunk, baseX, baseZ, x, y, z, BlockType.STEEL.id);
+                        else put(chunk, baseX, baseZ, x, y, z, 0);
                         continue;
                     }
-                    int rel = y - y0;
                     boolean base = (rel == 0);
                     boolean band = (h >= 5) && (rel == h - 1);
                     boolean door = (z == bz) && (x == doorX) && (rel < 2);
@@ -1234,7 +1287,9 @@ public class CityGenerator {
 
     private void spireTower(Chunk chunk, int baseX, int baseZ, int cx, int y0, int cz,
                             int wall, int roof, int accent) {
-        int w = 9, d = 9, h = 30;
+        int w = 9, d = 9;
+        int h = Math.min(30, Chunk.SIZE_Y - 16 - y0);
+        if (h < 12) h = 12;
         for (int tier = 0; tier < 3; tier++) {
             int seg = 10;
             for (int x = cx - w / 2; x <= cx + w / 2; x++) {

@@ -198,6 +198,31 @@ public final class Decoration {
             }
         }
         put(chunk, baseX, baseZ, wx, y + height, wz, leaf, true);
+        if (terrain.temperature(wx, wz) < -0.26f) {
+            snowCap(chunk, baseX, baseZ, wx, y + height, wz, 3, 5);
+        }
+    }
+
+    /** Puts a thin snow layer on every exposed leaf top inside a small box. */
+    private void snowCap(Chunk chunk, int baseX, int baseZ, int wx, int topY, int wz,
+                         int radius, int depth) {
+        for (int dx = -radius; dx <= radius; dx++) {
+            for (int dz = -radius; dz <= radius; dz++) {
+                for (int dy = 0; dy <= depth; dy++) {
+                    int y = topY - dy;
+                    int lx = wx + dx - baseX, lz = wz + dz - baseZ;
+                    if (lx < 0 || lx >= Chunk.SIZE_X || lz < 0 || lz >= Chunk.SIZE_Z) break;
+                    int id = chunk.get(lx, y, lz);
+                    if (id == BlockType.SPRUCE_LEAVES.id || id == BlockType.LEAVES.id
+                            || id == BlockType.JUNGLE_LEAVES.id) {
+                        if (chunk.get(lx, y + 1, lz) == 0) {
+                            chunk.set(lx, y + 1, lz, (byte) BlockType.SNOW.id);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
     }
 
     private void jungle(Chunk chunk, int baseX, int baseZ, int wx, int y, int wz, int height, int leaf) {

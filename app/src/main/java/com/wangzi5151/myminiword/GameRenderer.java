@@ -429,6 +429,7 @@ public class GameRenderer implements GLSurfaceView.Renderer {
     private float dayTime = 0.30f;
     private float renderDist = 116f;
     private float aspect = 1.6f;
+    private float currentFov = 74f;
 
     private float accumulator = 0f;
     private float prevX, prevY, prevZ, interpAlpha = 1f;
@@ -1680,6 +1681,11 @@ public class GameRenderer implements GLSurfaceView.Renderer {
         camera.y += bobY;
         camera.z += camRight[2] * bobSide;
 
+        float targetFov = 74f + (player.sprinting ? 3.5f : 0f) - (underwater ? 3f : 0f);
+        if (Math.abs(targetFov - currentFov) > 0.08f) {
+            currentFov = targetFov;
+            camera.setPerspective(currentFov, aspect, 0.05f, 360f);
+        }
         camera.updateView();
         System.arraycopy(camera.getVP(), 0, vp, 0, 16);
     }
@@ -1774,6 +1780,10 @@ public class GameRenderer implements GLSurfaceView.Renderer {
             fogR = 0.05f;
             fogG = 0.21f;
             fogB = 0.35f;
+        } else if (weather.wetness > 0.02f) {
+            // Rain closes the horizon in.
+            fogEnd *= 1f - 0.30f * weather.wetness;
+            if (fogEnd < fogStart + 12f) fogEnd = fogStart + 12f;
         }
 
         setupBlockPass(fogStart, fogEnd);

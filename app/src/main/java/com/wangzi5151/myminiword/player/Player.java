@@ -11,6 +11,7 @@ public class Player {
     public boolean onGround = false;
     public boolean flying = false;
     public boolean inWater = false;
+    public boolean sprinting = false;
 
     public static final float WIDTH = 0.6f;
     public static final float HEIGHT = 1.8f;
@@ -44,6 +45,7 @@ public class Player {
 
         vx = (fx * moveForward + rx * moveStrafe) * speed;
         vz = (fz * moveForward + rz * moveStrafe) * speed;
+        sprinting = sprint && !flying && !inWater && len > 0.1f;
 
         if (flying) {
             vy = 0f;
