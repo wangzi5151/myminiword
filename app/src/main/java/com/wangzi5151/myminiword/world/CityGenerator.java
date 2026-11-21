@@ -20,6 +20,8 @@ public class CityGenerator {
     public static final int THEME_MODERN = 4;
     public static final int THEME_NORDIC = 5;
 
+    public static final String[] THEME_NAMES = {"中华城", "欧罗巴", "和风町", "沙海城", "新港", "北境"};
+
     public static final int RADIUS = 64;     // paved city radius
     public static final int GRADE = 16;      // terrain blend ring
     public static final int SUBURB = 56;     // rural ring outside the city

@@ -1255,7 +1255,10 @@ public class GameRenderer implements GLSurfaceView.Renderer {
             }
         }
         if (best < 0) return "";
-        return "城市 " + Math.round(Math.sqrt(bd)) + "m";
+        int theme = CityGenerator.CITIES[best][2];
+        String name = theme >= 0 && theme < CityGenerator.THEME_NAMES.length
+                ? CityGenerator.THEME_NAMES[theme] : "城市";
+        return name + " " + Math.round(Math.sqrt(bd)) + "m";
     }
 
     private void drawWeather(float dt) {

@@ -404,6 +404,11 @@ public class ControlsOverlay extends View {
         stroke.setStrokeWidth(dp(2));
         canvas.drawLine(pxn, pzn, pxn + fx * dp(9), pzn + fz * dp(9), stroke);
         stroke.setStrokeWidth(dp(2));
+        text.setTextSize(dp(9));
+        text.setColor(0xAAFFFFFF);
+        canvas.drawText("N", x0 + s / 2f, y0 + dp(10), text);
+        text.setTextSize(dp(14));
+        text.setColor(0xFFFFFFFF);
     }
 
     private void updateMapBounds() {
